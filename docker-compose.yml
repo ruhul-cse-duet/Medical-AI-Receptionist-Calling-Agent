@@ -1,0 +1,104 @@
+version: "3.9"
+
+services:
+  # ── MongoDB ─────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: medical_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: medical_receptionist
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: medical_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  # ── FastAPI ──────────────────────────────────────────────────────────────────
+  api:
+    build: .
+    container_name: medical_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      - mongo
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── Celery Worker ─────────────────────────────────────────────────────────────
+  worker:
+    build: .
+    container_name: medical_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      - mongo
+      - redis
+    command: celery -A worker.tasks worker --loglevel=info --concurrency=4
+
+  # ── Celery Beat (reminder scheduler) ─────────────────────────────────────────
+  beat:
+    build: .
+    container_name: medical_beat
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      - redis
+    command: celery -A worker.tasks beat --loglevel=info
+
+  # ── Flower (Celery monitor) ───────────────────────────────────────────────────
+  flower:
+    build: .
+    container_name: medical_flower
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    env_file: .env
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/1
+    depends_on:
+      - redis
+    command: celery -A worker.tasks flower --port=5555
+
+  # ── Mongo Express (DB UI) — dev only ──────────────────────────────────────────
+  mongo-express:
+    image: mongo-express:latest
+    container_name: medical_mongo_express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    depends_on:
+      - mongo
+    profiles:
+      - dev
+
+volumes:
+  mongo_data:

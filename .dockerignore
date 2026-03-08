@@ -1,0 +1,41 @@
+# VCS / meta
+.git
+.gitignore
+.dockerignore
+
+# IDEs / editors
+.idea
+.vscode
+
+# Python caches / venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv
+env
+
+# Env files (don't bake secrets into image context; keep example)
+.env
+.env.*
+!.env.example
+
+# Logs / local state
+*.log
+logs
+*.sqlite3
+*.db
+
+# Local artifacts (often huge; remove these lines if you intentionally want them in the image)
+data
+datasets
+models
+checkpoints
+artifacts
+outputs
+runs
+wandb
+mlruns
+

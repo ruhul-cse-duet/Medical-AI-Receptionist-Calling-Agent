@@ -1,0 +1,60 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+
+# Packaging / build outputs
+build/
+dist/
+*.egg-info/
+
+# Test / type / lint caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files (keep example)
+.env
+.env.*
+!.env.example
+
+# IDEs / editors
+.idea/
+.vscode/
+*.iml
+
+# OS / filesystem noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs / runtime state
+*.log
+logs/
+celerybeat-schedule
+celerybeat.pid
+
+# Local databases / state
+*.sqlite3
+*.db
+
+# Common local ML / app artifact folders (keep repo light)
+data/
+datasets/
+models/
+checkpoints/
+artifacts/
+outputs/
+runs/
+wandb/
+mlruns/
+
+# Docker local override
+docker-compose.override.yml
+
