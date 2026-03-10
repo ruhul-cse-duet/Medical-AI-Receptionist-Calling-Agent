@@ -144,22 +144,81 @@ class _OpenAIWhisperSession:
         loop: asyncio.AbstractEventLoop,
         language: str,
     ) -> None:
+        """
+        Pseudo-streaming OpenAI Whisper session.
+
+        We receive continuous 8kHz mu-law bytes from Twilio, buffer a few
+        seconds of audio, then send that chunk to OpenAI Whisper as a WAV
+        file. When a transcription comes back, we treat it as a final
+        utterance and call on_transcript(text, True).
+
+        This is not true low-latency streaming, but it gives near real-time
+        turn-by-turn behavior with OpenAI STT.
+        """
         self._on_transcript = on_transcript
         self._loop = loop
-        self._language = language or settings.OPENAI_STT_LANGUAGE or "en"
-        self._buffer = bytearray()
+        # Normalize language to ISO-639-1 (e.g. "en-US" -> "en")
+        raw_lang = language or getattr(settings, "OPENAI_STT_LANGUAGE", None) or "en"
+        norm_lang = raw_lang.split("-")[0].split("_")[0].lower()
+        self._language = norm_lang or "en"
+
+        # Buffer of raw 8kHz mu-law bytes from Twilio
+        self._buffer_ulaw = bytearray()
         self._rate_state = None
 
+        # Chunking parameters
+        self._chunk_seconds = max(1.5, float(getattr(settings, "STT_CHUNK_SECONDS", 1.0)))
+        # At 8kHz, 1 byte/sample for mu-law
+        self._chunk_ulaw_bytes = int(self._chunk_seconds * 8000)
+        self._min_chunk_ulaw_bytes = int(0.8 * self._chunk_ulaw_bytes)
+
+        self._queue: "queue.Queue[bytes]" = queue.Queue()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+
+        self._thread.start()
+
     def send(self, data: bytes) -> None:
+        if self._stop.is_set():
+            return
         if data:
-            self._buffer.extend(data)
+            self._queue.put(data)
 
     async def finish(self) -> None:
-        if not self._buffer:
-            return
-        await asyncio.to_thread(self._transcribe_blocking)
+        self._stop.set()
+        # Wait briefly for worker to finish
+        await asyncio.to_thread(self._thread.join, 2.0)
+        # Final flush of remaining audio if big enough
+        if len(self._buffer_ulaw) >= self._min_chunk_ulaw_bytes:
+            await asyncio.to_thread(self._transcribe_blocking, bytes(self._buffer_ulaw))
 
-    def _transcribe_blocking(self) -> None:
+    def _worker(self) -> None:
+        while not self._stop.is_set() or not self._queue.empty():
+            try:
+                data = self._queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            if data:
+                self._buffer_ulaw.extend(data)
+
+            # When we have enough buffered audio, send a chunk to Whisper
+            while len(self._buffer_ulaw) >= self._chunk_ulaw_bytes:
+                chunk = bytes(self._buffer_ulaw[: self._chunk_ulaw_bytes])
+                del self._buffer_ulaw[: self._chunk_ulaw_bytes]
+                try:
+                    self._transcribe_blocking(chunk)
+                except Exception as exc:
+                    logger.error("OpenAI STT chunk error: %s", exc)
+
+        # After stop signal, flush any remaining audio
+        if len(self._buffer_ulaw) >= self._min_chunk_ulaw_bytes:
+            try:
+                self._transcribe_blocking(bytes(self._buffer_ulaw))
+            except Exception as exc:
+                logger.error("OpenAI STT final chunk error: %s", exc)
+
+    def _transcribe_blocking(self, ulaw_bytes: bytes) -> None:
         try:
             from openai import OpenAI
         except Exception as exc:
@@ -171,7 +230,8 @@ class _OpenAIWhisperSession:
             return
 
         try:
-            pcm = audioop.ulaw2lin(bytes(self._buffer), 2)
+            # Convert 8kHz mu-law → 16-bit PCM mono
+            pcm = audioop.ulaw2lin(ulaw_bytes, 2)
             pcm16k, self._rate_state = audioop.ratecv(
                 pcm, 2, 1, 8000, 16000, self._rate_state
             )
@@ -187,10 +247,11 @@ class _OpenAIWhisperSession:
             wav_io.seek(0)
 
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
+            # Let Whisper auto-detect language from audio so callers can speak
+            # Bangla, English, or mixed Banglish naturally.
             resp = client.audio.transcriptions.create(
                 model=settings.OPENAI_STT_MODEL,
                 file=("audio.wav", wav_io, "audio/wav"),
-                language=self._language,
             )
             text = (resp.text or "").strip()
             if text:
