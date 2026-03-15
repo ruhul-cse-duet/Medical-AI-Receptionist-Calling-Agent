@@ -23,13 +23,15 @@ class Settings(BaseSettings):
 
     # Speech Providers
     STT_PROVIDER: Literal["none", "deepgram", "faster_whisper", "openai"] = "faster_whisper"
-    TTS_PROVIDER: Literal["none", "elevenlabs", "edge", "piper", "gtts", "coqui"] = "edge"
+    TTS_PROVIDER: Literal["none", "elevenlabs", "edge", "piper", "gtts", "coqui", "openai"] = "edge"
 
     # ── OpenAI (cloud) ────────────────────────────────────────────────────────
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_STT_MODEL: str = "whisper-1"
     OPENAI_STT_LANGUAGE: str = "en"
+    OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
+    OPENAI_TTS_VOICE: str = "shimmer"  # alloy, echo, fable, onyx, nova, shimmer, etc.
 
     # ── LM Studio (local) — OpenAI-compatible API ─────────────────────────────
     # LM Studio → Server tab → start → default port 1234

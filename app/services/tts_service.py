@@ -63,6 +63,9 @@ class TTSService:
         if self.provider == "none":
             raise RuntimeError("TTS disabled (provider=none)")
 
+        if self.provider == "openai":
+            return await self._synthesize_openai(text)
+
         if self.provider == "edge":
             import edge_tts
 
@@ -99,6 +102,33 @@ class TTSService:
             return self._synthesize_coqui(text)
 
         return await self._synthesize_elevenlabs(text)
+
+    async def _synthesize_openai(self, text: str) -> tuple[bytes, str]:
+        try:
+            from openai import AsyncOpenAI
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI import failed: {exc}") from exc
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is required for TTS_PROVIDER=openai")
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        try:
+            response = await client.audio.speech.create(
+                model=settings.OPENAI_TTS_MODEL,
+                voice=settings.OPENAI_TTS_VOICE,
+                input=text,
+            )
+            audio = response.content
+            if not audio:
+                raise RuntimeError("OpenAI TTS returned empty audio")
+            logger.info(
+                "OpenAI TTS (%s) synthesized %d chars → %d bytes",
+                settings.OPENAI_TTS_MODEL,
+                len(text),
+                len(audio),
+            )
+            return audio, "audio/mpeg"
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI TTS failed: {exc}") from exc
 
     async def _synthesize_elevenlabs(self, text: str) -> tuple[bytes, str]:
         payload = {
