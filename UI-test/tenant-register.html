@@ -1,0 +1,431 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doctor AI Assistant Setup</title>
+  <style>
+    :root {
+      --bg: #f5f3ef;
+      --card: #ffffff;
+      --ink: #1b1b1b;
+      --muted: #5a5a5a;
+      --accent: #0f7a6b;
+      --accent-2: #f1a15a;
+      --error: #b00020;
+      --ring: rgba(15, 122, 107, 0.25);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Georgia", "Times New Roman", serif;
+      background: radial-gradient(1200px 800px at 10% -10%, #f7e9d8 0%, transparent 55%),
+                  radial-gradient(1000px 700px at 120% 10%, #e8f2ee 0%, transparent 45%),
+                  var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+
+    .page {
+      width: min(1020px, 100%);
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 860px) {
+      .page {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 18px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+      padding: 28px;
+    }
+
+    .hero {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(28px, 3vw, 36px);
+      line-height: 1.2;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    form {
+      display: grid;
+      gap: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    label {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    input, textarea, select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid #dedede;
+      font-size: 15px;
+      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px var(--ring);
+    }
+
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 560px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    button {
+      padding: 12px 18px;
+      border-radius: 999px;
+      border: none;
+      background: var(--accent);
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px rgba(15, 122, 107, 0.25);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .status {
+      border-radius: 12px;
+      padding: 14px;
+      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
+      font-size: 14px;
+      background: #f6f6f6;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 56px;
+    }
+
+    .status.success {
+      border: 1px solid rgba(15, 122, 107, 0.35);
+      background: #f1fbf8;
+      color: #0b5a50;
+    }
+
+    .status.error {
+      border: 1px solid rgba(176, 0, 32, 0.35);
+      background: #fff4f6;
+      color: var(--error);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #fff8f0;
+      border-radius: 999px;
+      color: #7a4b1d;
+      font-size: 13px;
+      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
+    }
+
+    .hint {
+      font-size: 13px;
+      color: var(--muted);
+      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="card hero">
+      <div class="badge">
+        <span>Doctor AI Assistant</span>
+        <span>&bull;</span>
+        <span>Clinic Onboarding</span>
+      </div>
+      <h1>Register a doctor and activate the AI assistant.</h1>
+      <p>
+        Submit doctor and clinic details below. We will POST to
+        <strong>/v1/tenants/register</strong> and store the tenant in MongoDB.
+        On success, the <strong>tenant_id</strong> and details will appear here.
+      </p>
+      <div class="pill">After success, call the tenant Twilio number to hear the AI answer as the doctor.</div>
+      <div class="hint">Daily capacity is fixed to 20 patients.</div>
+    </section>
+
+    <section class="card">
+      <form id="tenantForm">
+        <div class="field">
+          <label for="clinic_name">Clinic Name</label>
+          <input id="clinic_name" name="clinic_name" type="text" placeholder="Atlas Care Clinic" required>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="company_type">Company Type</label>
+            <select id="company_type" name="company_type">
+              <option value="personal_doctor">Personal Doctor</option>
+              <option value="medical_diagnostic">Medical Diagnostic</option>
+              <option value="dental_clinic">Dental Clinic</option>
+              <option value="spa_wellness">Spa Wellness</option>
+              <option value="hotel">Hotel</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="receptionist_name">Receptionist Name</label>
+            <input id="receptionist_name" name="receptionist_name" type="text" placeholder="Ayesha">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="doctor_name">Doctor Name</label>
+            <input id="doctor_name" name="doctor_name" type="text" placeholder="Dr. Samira Rahman" required>
+          </div>
+          <div class="field">
+            <label for="specialty">Specialty</label>
+            <input id="specialty" name="specialty" type="text" placeholder="Cardiology" required>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="phone">Clinic Phone (Required)</label>
+            <input id="phone" name="phone" type="tel" placeholder="+8801XXXXXXXXX" required>
+          </div>
+          <div class="field">
+            <label for="twilio_phone_number">Twilio Phone Number</label>
+            <input id="twilio_phone_number" name="twilio_phone_number" type="tel" placeholder="+1XXXXXXXXXX">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="contact_name">Contact Name</label>
+            <input id="contact_name" name="contact_name" type="text" placeholder="Clinic Manager">
+          </div>
+          <div class="field">
+            <label for="email">Contact Email</label>
+            <input id="email" name="email" type="email" placeholder="contact@clinic.com">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="website">Website</label>
+            <input id="website" name="website" type="url" placeholder="https://clinic.com">
+          </div>
+          <div class="field">
+            <label for="timezone">Timezone</label>
+            <select id="timezone" name="timezone">
+              <option value="Asia/Dhaka">Asia/Dhaka</option>
+              <option value="America/New_York">America/New_York</option>
+              <option value="America/Chicago">America/Chicago</option>
+              <option value="America/Los_Angeles">America/Los_Angeles</option>
+              <option value="Europe/London">Europe/London</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="country">Country (ISO)</label>
+            <input id="country" name="country" type="text" placeholder="BD" value="BD">
+          </div>
+          <div class="field">
+            <label for="locale">Locale</label>
+            <input id="locale" name="locale" type="text" placeholder="en-US" value="en-US">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="working_days">Working Days</label>
+            <input id="working_days" name="working_days" type="text" placeholder="Sun-Thu">
+          </div>
+          <div class="field">
+            <label for="consultation_fee">Consultation Fee</label>
+            <input id="consultation_fee" name="consultation_fee" type="text" placeholder="500 BDT">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="start_time">Start Time</label>
+            <input id="start_time" name="start_time" type="time" value="09:00">
+          </div>
+          <div class="field">
+            <label for="end_time">End Time</label>
+            <input id="end_time" name="end_time" type="time" value="17:00">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="patient_limit">Patients Per Day</label>
+            <input id="patient_limit" name="patient_limit" type="number" value="20" min="20" max="20" readonly>
+          </div>
+          <div class="field">
+            <label for="address">Clinic Address</label>
+            <input id="address" name="address" type="text" placeholder="Street, City, Country">
+          </div>
+        </div>
+
+        <button id="submitBtn" type="submit">Register Doctor Assistant</button>
+        <div id="status" class="status">Waiting for submission.</div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById("tenantForm");
+    const statusBox = document.getElementById("status");
+    const submitBtn = document.getElementById("submitBtn");
+
+    const setStatus = (message, type) => {
+      statusBox.textContent = message;
+      statusBox.classList.remove("success", "error");
+      if (type) statusBox.classList.add(type);
+    };
+
+    const API_BASE = "http://localhost:8000";
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submitBtn.disabled = true;
+      setStatus("Submitting doctor assistant data...", null);
+
+      const workingDays = form.working_days.value.trim();
+      const startTime = form.start_time.value;
+      const endTime = form.end_time.value;
+      const businessHours = `${workingDays} ${startTime}-${endTime}`.trim();
+
+      const doctorName = form.doctor_name.value.trim();
+      const specialty = form.specialty.value.trim();
+      const staffList = [];
+      if (doctorName || specialty) {
+        staffList.push({
+          name: doctorName,
+          specialty: specialty
+        });
+      }
+
+      const payload = {
+        company_type: form.company_type.value,
+        name: form.clinic_name.value.trim(),
+        phone: form.phone.value.trim(),
+        address: form.address.value.trim(),
+        business_hours: businessHours,
+        country: (form.country.value || "BD").trim().toUpperCase(),
+        locale: (form.locale.value || "en-US").trim(),
+        timezone: form.timezone.value,
+        twilio_phone_number: form.twilio_phone_number.value.trim(),
+        receptionist_name: form.receptionist_name.value.trim() || "Lisa",
+        staff_list: staffList,
+        extra_info: {
+          doctor_name: doctorName,
+          specialty: specialty,
+          consultation_fee: form.consultation_fee.value.trim(),
+          patient_limit: Number(form.patient_limit.value || 20),
+          working_days: workingDays,
+          start_time: startTime,
+          end_time: endTime,
+          website: form.website.value.trim(),
+          contact_name: form.contact_name.value.trim(),
+          contact_email: form.email.value.trim()
+        }
+      };
+
+      try {
+        const response = await fetch(`${API_BASE}/v1/tenants/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const errorMessage = data.detail || data.message || `Request failed (${response.status})`;
+          setStatus(errorMessage, "error");
+          return;
+        }
+
+        const tenantId = data.tenant_id || data.id || "unknown";
+        const pretty = JSON.stringify(data, null, 2);
+        setStatus(`Success. tenant_id: ${tenantId}\n\n${pretty}`, "success");
+      } catch (error) {
+        setStatus(error.message || "Network error.", "error");
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

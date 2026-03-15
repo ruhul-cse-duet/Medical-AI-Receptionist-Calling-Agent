@@ -1,23 +1,23 @@
-"""
+﻿"""
 CrewAI Medical Receptionist
 ============================
 Multi-agent crew for handling inbound/outbound medical calls.
 
 Agents:
-  1. ReceptionistAgent  — main conversational agent (greets, collects info)
-  2. AppointmentAgent   — specialist for booking & managing appointments
-  3. ReminderAgent      — handles reminder call content
+  1. ReceptionistAgent  â€” main conversational agent (greets, collects info)
+  2. AppointmentAgent   â€” specialist for booking & managing appointments
+  3. ReminderAgent      â€” handles reminder call content
 
 LLM Support:
-  - Cloud  → OpenAI GPT-4o          (LLM_PROVIDER=openai in .env)
-  - Local  → LM Studio liquid/lfm2  (LLM_PROVIDER=lmstudio in .env)
-    • Start LM Studio → Server tab → Load "liquid/lfm2-1.2b" → Start Server
-    • Default endpoint: http://localhost:1234/v1
+  - Cloud  â†’ OpenAI GPT-4o          (LLM_PROVIDER=openai in .env)
+  - Local  â†’ LM Studio liquid/lfm2  (LLM_PROVIDER=lmstudio in .env)
+    â€¢ Start LM Studio â†’ Server tab â†’ Load "liquid/lfm2-1.2b" â†’ Start Server
+    â€¢ Default endpoint: http://localhost:1234/v1
 
 Flow per utterance:
-  Patient speech → STT → process_utterance(ctx, text) → CrewAI Crew
-  → ReceptionistAgent delegates to AppointmentAgent if booking needed
-  → Response text → TTS → Twilio
+  Patient speech â†’ STT â†’ process_utterance(ctx, text) â†’ CrewAI Crew
+  â†’ ReceptionistAgent delegates to AppointmentAgent if booking needed
+  â†’ Response text â†’ TTS â†’ Twilio
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from crewai import Agent, Crew, Task, LLM, Process
 
 from app.config import settings
 from app.agents.tools import (
-    DOCTORS,
+    DEFAULT_DOCTORS,
     check_available_doctors,
     book_appointment,
     get_appointment_details,
@@ -71,7 +71,61 @@ def _sanitize_spoken_reply(text: str) -> str:
     return cleaned
 
 
-def _fast_faq_response(patient_text: str) -> Optional[str]:
+def _tenant_company_info(tenant: Optional[Any]) -> tuple[str, str, str, str, str]:
+    """Return (name, hours, address, phone, receptionist_name) from tenant or settings."""
+    if tenant is not None and hasattr(tenant, "name"):
+        return (
+            getattr(tenant, "name", settings.CLINIC_NAME),
+            getattr(tenant, "business_hours", None) or settings.CLINIC_HOURS,
+            getattr(tenant, "address", None) or settings.CLINIC_ADDRESS,
+            getattr(tenant, "phone", None) or settings.CLINIC_PHONE,
+            getattr(tenant, "receptionist_name", None) or "Lisa",
+        )
+    return (
+        settings.CLINIC_NAME,
+        settings.CLINIC_HOURS,
+        settings.CLINIC_ADDRESS,
+        settings.CLINIC_PHONE,
+        "Lisa",
+    )
+
+
+def _tenant_profile_summary(tenant: Optional[Any]) -> str:
+    if tenant is None:
+        return ""
+    parts: List[str] = []
+    if getattr(tenant, "name", None):
+        parts.append(f"Clinic: {tenant.name}")
+    if getattr(tenant, "business_hours", None):
+        parts.append(f"Hours: {tenant.business_hours}")
+    if getattr(tenant, "address", None):
+        parts.append(f"Address: {tenant.address}")
+    if getattr(tenant, "phone", None):
+        parts.append(f"Phone: {tenant.phone}")
+    if getattr(tenant, "twilio_phone_number", None):
+        parts.append(f"Twilio: {tenant.twilio_phone_number}")
+    staff = getattr(tenant, "staff_list", None) or []
+    if staff:
+        staff_str = "; ".join(
+            f"{s.get('name', '').strip()} ({s.get('specialty', '').strip()})".strip()
+            for s in staff
+            if s.get("name") or s.get("specialty")
+        )
+        if staff_str:
+            parts.append(f"Doctors: {staff_str}")
+    extra = getattr(tenant, "extra_info", None) or {}
+    if extra:
+        extras = []
+        for k in ["working_days", "start_time", "end_time", "consultation_fee", "patient_limit"]:
+            v = extra.get(k)
+            if v not in (None, ""):
+                extras.append(f"{k.replace('_', ' ').title()}: {v}")
+        if extras:
+            parts.append("Extras: " + ", ".join(extras))
+    return " | ".join(parts)
+
+
+def _fast_faq_response(patient_text: str, tenant: Optional[Any] = None) -> Optional[str]:
     """
     Fast path for common clinic questions so callers get immediate answers.
     This bypasses LLM latency for frequent intents.
@@ -79,17 +133,17 @@ def _fast_faq_response(patient_text: str) -> Optional[str]:
     text = (patient_text or "").strip().lower()
     if not text:
         return None
-
+    name, hours, address, phone, _ = _tenant_company_info(tenant)
     if any(k in text for k in ["hour", "open", "close", "time", "kokhon", "koyta", "working"]):
-        return f"Our clinic hours are {settings.CLINIC_HOURS}. Would you like me to book an appointment for you?"
+        return f"Our business hours are {hours}. Would you like me to book an appointment for you?"
     if any(k in text for k in ["address", "location", "kothay", "where"]):
-        return f"Our address is {settings.CLINIC_ADDRESS}. Would you like directions by SMS?"
+        return f"Our address is {address}. Would you like directions by SMS?"
     if any(k in text for k in ["phone", "number", "contact", "jogajog"]):
-        return f"You can reach us at {settings.CLINIC_PHONE}. How else can I help you today?"
+        return f"You can reach us at {phone}. How else can I help you today?"
     if any(k in text for k in ["doctor", "specialist", "cardiology", "orthopedic", "pediatric", "dermatology", "neurology"]):
         try:
             doctors = check_available_doctors("all")
-            compact = doctors.replace("Available doctors at " + settings.CLINIC_NAME + ":\n", "").replace("\n", "; ")
+            compact = doctors.replace(f"Available doctors at {name}:\n", "").replace("\n", "; ")
             return f"Available doctors are: {compact}"
         except Exception:
             return "We have specialists in general medicine, cardiology, orthopedics, pediatrics, dermatology, and neurology. Which specialist do you need?"
@@ -188,12 +242,14 @@ def _extract_reason(text: str) -> Optional[str]:
     return None
 
 
-def _extract_datetime_iso(text: str) -> Optional[str]:
+def _extract_datetime_iso(text: str, tenant: Optional[Any] = None) -> Optional[str]:
+    """Parse date/time from user text in tenant's local timezone; return ISO UTC."""
     if not text:
         return None
+    from app.utils.datetime_utils import get_tenant_zoneinfo, now_in_tenant_tz
     low = text.lower()
-    local_tz = ZoneInfo("Asia/Dhaka")
-    now = datetime.now(local_tz)
+    local_tz = get_tenant_zoneinfo(tenant)
+    now = now_in_tenant_tz(tenant)
 
     # time
     tm = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", low)
@@ -242,9 +298,9 @@ def _extract_datetime_iso(text: str) -> Optional[str]:
     return utc_dt.isoformat().replace("+00:00", "Z")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# LLM FACTORY — picks OpenAI or LM Studio based on config
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# LLM FACTORY â€” picks OpenAI or LM Studio based on config
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _build_llm(temperature: float = 0.7) -> LLM:
     """
     Returns a CrewAI LLM instance.
@@ -254,8 +310,8 @@ def _build_llm(temperature: float = 0.7) -> LLM:
 
     LM Studio (local):
       Set LLM_PROVIDER=lmstudio in .env
-      Load 'liquid/lfm2-1.2b' in LM Studio → Server tab → Start
-      No API key needed — LM Studio accepts any string.
+      Load 'liquid/lfm2-1.2b' in LM Studio â†’ Server tab â†’ Start
+      No API key needed â€” LM Studio accepts any string.
     """
     if settings.LLM_PROVIDER == "lmstudio":
         logger.info(
@@ -279,9 +335,9 @@ def _build_llm(temperature: float = 0.7) -> LLM:
         )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CALL CONTEXT — shared state for one call session
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# CALL CONTEXT â€” shared state for one call session
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @dataclass
 class CallContext:
     call_id: str
@@ -289,6 +345,7 @@ class CallContext:
     direction: str = "inbound"           # inbound | outbound
     is_reminder_call: bool = False
     appointment_id: Optional[str] = None  # for reminder calls
+    tenant: Optional[Any] = None         # SaaS: company (Tenant) for this call; None = single-tenant fallback
 
     # Conversation history (plain text for context injection)
     transcript_segments: List[Dict] = field(default_factory=list)
@@ -322,35 +379,37 @@ class CallContext:
         self.ended_at = datetime.now(timezone.utc)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# AGENT DEFINITIONS
-# ─────────────────────────────────────────────────────────────────────────────
-def _build_receptionist_agent() -> Agent:
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# AGENT DEFINITIONS (tenant-aware for SaaS)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+def _build_receptionist_agent(tenant: Optional[Any] = None) -> Agent:
     """
     Main front-desk agent. Handles greeting, understanding patient needs,
     and coordinating with the appointment specialist.
-    Warm, natural, human-like tone.
     """
+    name, hours, address, _phone, _rec = _tenant_company_info(tenant)
+    profile = _tenant_profile_summary(tenant)
     return Agent(
         role="Medical Receptionist",
         goal=(
-            f"Help patients of {settings.CLINIC_NAME} over the phone. "
+            f"Help callers of {name} over the phone. "
             "Greet warmly, understand their need, collect required information, "
             "and guide them to book an appointment or answer their questions."
         ),
         backstory=(
-            f"You are a warm, professional receptionist at {settings.CLINIC_NAME} in Bangladesh. "
-            f"Clinic hours: {settings.CLINIC_HOURS}. Address: {settings.CLINIC_ADDRESS}. "
+            f"You are a warm, professional receptionist at {name}. "
+            f"Business hours: {hours}. Address: {address}. "
+            f"{('Clinic profile: ' + profile + '. ') if profile else ''}"
             "You speak naturally like a real human on the phone. "
-            "Never mention that you are an AI, model, bot, assistant, or automated system unless the patient directly asks. "
+            "Never mention that you are an AI, model, bot, assistant, or automated system unless the caller directly asks. "
             "Keep responses concise and conversational (1-3 sentences max for phone calls). "
-            "Strictly mirror the patient's language style: "
+            "Strictly mirror the caller's language style: "
             "if they speak mostly English, reply only in English; "
             "if they speak mostly Bangla, reply only in Bangla; "
             "if they mix Bangla and English, reply in natural Banglish. "
-            "Do not randomly switch languages inside one sentence; only mix when the patient mixes. "
-            "When a patient wants to book an appointment, collect: their full name, phone number, "
-            "preferred doctor, reason/treatment, and preferred date & time — then confirm before booking."
+            "Do not randomly switch languages inside one sentence; only mix when the caller mixes. "
+            "When a caller wants to book an appointment, collect: their full name, phone number, "
+            "preferred doctor, reason/treatment, and preferred date & time â€” then confirm before booking."
         ),
         tools=[check_available_doctors, get_clinic_info],
         llm=_build_llm(temperature=0.35),
@@ -360,25 +419,20 @@ def _build_receptionist_agent() -> Agent:
     )
 
 
-def _build_greeting_agent() -> Agent:
+def _build_greeting_agent(tenant: Optional[Any] = None) -> Agent:
+    name, _hours, _addr, _ph, rec_name = _tenant_company_info(tenant)
     return Agent(
         role="Front Desk Receptionist",
         goal=(
-            f"Start calls naturally for {settings.CLINIC_NAME}, sounding like a real human "
+            f"Start calls naturally for {name}, sounding like a real human "
             "receptionist, not a bot, and using the caller's preferred language."
         ),
         backstory=(
-            f"You are Lisa, the front-desk receptionist at {settings.CLINIC_NAME} in Bangladesh. "
+            f"You are {rec_name}, the front-desk receptionist at {name}. "
             "You speak naturally like a real human on the phone. "
             "You can speak Bangla, English, or mixed Banglish. "
-            "For the opening greeting, keep it very short and friendly (1–2 sentences). "
-            "Always greet in a single clear language based on the caller's style: "
-            "if the caller sounds English-speaking, greet fully in English; "
-            "if the caller sounds Bangla-speaking, greet fully in Bangla; "
-            "only mix Bangla and English if the caller is clearly mixing both. "
-            "Do not randomly switch languages inside one sentence. "
-            "A fully English example: \"Sunrise Family Clinic, Lisa speaking. How may I help you today?\" "
-            "A fully Bangla example: \"Sunrise Family Clinic, ami Lisa bolchi. Apnake ki vabe help korte pari?\" "
+            "For the opening greeting, keep it very short and friendly (1â€“2 sentences). "
+            "Always greet in a single clear language based on the caller's style. "
             "For this greeting output, return only the exact words you would say out loud, "
             "with no labels, no reasoning, and no explanations."
         ),
@@ -390,11 +444,8 @@ def _build_greeting_agent() -> Agent:
     )
 
 
-def _build_appointment_agent() -> Agent:
-    """
-    Specialist agent for appointment booking and retrieval.
-    Only activated when the receptionist delegates booking tasks.
-    """
+def _build_appointment_agent(tenant: Optional[Any] = None) -> Agent:
+    """Specialist agent for appointment booking and retrieval."""
     return Agent(
         role="Appointment Booking Specialist",
         goal="Accurately book, retrieve, and manage patient appointments in the database.",
@@ -405,22 +456,21 @@ def _build_appointment_agent() -> Agent:
             "Always verify the doctor name matches available doctors before booking."
         ),
         tools=[book_appointment, get_appointment_details, check_available_doctors],
-        llm=_build_llm(temperature=0.1),  # low temp for precise data operations
+        llm=_build_llm(temperature=0.1),
         verbose=False,
         allow_delegation=False,
         max_iter=3,
     )
 
 
-def _build_reminder_agent() -> Agent:
-    """
-    Handles outbound reminder calls — fetches appointment and generates reminder message.
-    """
+def _build_reminder_agent(tenant: Optional[Any] = None) -> Agent:
+    """Handles outbound reminder calls â€” fetches appointment and generates reminder message."""
+    name, _h, _a, _p, _r = _tenant_company_info(tenant)
     return Agent(
         role="Appointment Reminder Agent",
         goal="Remind patients about their upcoming appointments in a warm, friendly way.",
         backstory=(
-            f"You call patients on behalf of {settings.CLINIC_NAME} to remind them of appointments. "
+            f"You call patients on behalf of {name} to remind them of appointments. "
             "Fetch the appointment details, then deliver a natural, friendly reminder. "
             "Confirm they can attend. If they want to reschedule, note it and ask them to call back."
         ),
@@ -432,28 +482,32 @@ def _build_reminder_agent() -> Agent:
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CREW — orchestrates agents for one call session
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# CREW â€” orchestrates agents for one call session
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class MedicalReceptionistCrew:
     """
     One instance per active call. Processes utterances turn-by-turn.
     Uses CrewAI hierarchical process so ReceptionistAgent can delegate
     appointment booking to AppointmentAgent automatically.
+    SaaS: ctx.tenant sets company-specific agents and tools.
     """
 
     def __init__(self, ctx: CallContext):
         self.ctx = ctx
         if ctx.patient_phone and not ctx.booking.patient_phone:
             ctx.booking.patient_phone = ctx.patient_phone
-        self.receptionist = _build_receptionist_agent()
-        self.greeter = _build_greeting_agent()
-        self.appointment_specialist = _build_appointment_agent()
-        self.reminder_agent = _build_reminder_agent()
+        self.receptionist = _build_receptionist_agent(ctx.tenant)
+        self.greeter = _build_greeting_agent(ctx.tenant)
+        self.appointment_specialist = _build_appointment_agent(ctx.tenant)
+        self.reminder_agent = _build_reminder_agent(ctx.tenant)
 
-    # ── Generate opening greeting ─────────────────────────────────────────────
+    # â”€â”€ Generate opening greeting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def generate_greeting(self) -> str:
+        from app.services.tenant_service import set_current_tenant
         ctx = self.ctx
+        set_current_tenant(ctx.tenant)
+        name, _h, _a, _p, _r = _tenant_company_info(ctx.tenant)
         if ctx.is_reminder_call and ctx.appointment_id:
             description = (
                 f"You are calling patient (phone: {ctx.patient_phone}) "
@@ -464,13 +518,12 @@ class MedicalReceptionistCrew:
         elif ctx.direction == "outbound":
             description = (
                 f"You are calling a patient at {ctx.patient_phone} outbound. "
-                f"Generate a warm opening for {settings.CLINIC_NAME}, "
-                "introducing yourself and asking how you can help."
+                f"Generate a warm opening for {name}, introducing yourself and asking how you can help."
             )
             agent = self.greeter
         else:
             description = (
-                f"A patient just called {settings.CLINIC_NAME}. "
+                f"A caller just called {name}. "
                 "Generate a warm, professional inbound greeting and ask how you can help."
             )
             agent = self.greeter
@@ -493,17 +546,19 @@ class MedicalReceptionistCrew:
         result = crew.kickoff()
         greeting = _sanitize_spoken_reply(str(result).strip())
         if not greeting:
-            greeting = f"Hello, thank you for calling {settings.CLINIC_NAME}. How may I help you today?"
+            greeting = f"Hello, thank you for calling {name}. How may I help you today?"
         self.ctx.add_turn("receptionist", greeting)
         return greeting
 
-    # ── Process one patient utterance ─────────────────────────────────────────
+    # â”€â”€ Process one patient utterance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def process_utterance(self, patient_text: str) -> str:
         """
         Main turn handler. Called for every patient utterance.
         Runs a CrewAI hierarchical crew so the receptionist can
         automatically delegate booking to the appointment specialist.
         """
+        from app.services.tenant_service import set_current_tenant
+        set_current_tenant(self.ctx.tenant)
         self.ctx.add_turn("patient", patient_text)
         t = (patient_text or "").strip()
         low = t.lower()
@@ -522,7 +577,7 @@ class MedicalReceptionistCrew:
             phone = _extract_phone(t)
             doctor = _extract_doctor(t)
             reason = _extract_reason(t)
-            when_iso = _extract_datetime_iso(t)
+            when_iso = _extract_datetime_iso(t, self.ctx.tenant)
 
             if name:
                 booking.patient_name = name
@@ -587,8 +642,11 @@ class MedicalReceptionistCrew:
 
             booking.awaiting_confirmation = True
             try:
-                local_dt = datetime.fromisoformat((booking.scheduled_at_iso or "").replace("Z", "+00:00")).astimezone(ZoneInfo("Asia/Dhaka"))
-                when_text = local_dt.strftime("%d %b %Y, %I:%M %p")
+                from app.utils.datetime_utils import format_date_short_tenant
+                dt_utc = datetime.fromisoformat((booking.scheduled_at_iso or "").replace("Z", "+00:00"))
+                if dt_utc.tzinfo is None:
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                when_text = format_date_short_tenant(dt_utc, self.ctx.tenant)
             except Exception:
                 when_text = booking.scheduled_at_iso or ""
             response = (
@@ -598,7 +656,7 @@ class MedicalReceptionistCrew:
             self.ctx.add_turn("receptionist", response)
             return response
 
-        faq = _fast_faq_response(patient_text)
+        faq = _fast_faq_response(patient_text, self.ctx.tenant)
         if faq:
             self.ctx.add_turn("receptionist", faq)
             return faq
@@ -637,9 +695,9 @@ class MedicalReceptionistCrew:
         return response
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SESSION REGISTRY
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _sessions: Dict[str, MedicalReceptionistCrew] = {}
 
 
@@ -658,3 +716,4 @@ def get_session(call_id: str) -> Optional[MedicalReceptionistCrew]:
 def destroy_session(call_id: str) -> None:
     _sessions.pop(call_id, None)
     logger.info("Session destroyed call_id=%s", call_id)
+

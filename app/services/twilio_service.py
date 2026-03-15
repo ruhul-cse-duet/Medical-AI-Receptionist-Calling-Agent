@@ -4,11 +4,11 @@ Twilio Service — TwiML, outbound calls, TTS injection, SMS
 from __future__ import annotations
 import logging
 from urllib.parse import urlparse, urlunparse
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from twilio.rest import Client
-from twilio.twiml.voice_response import VoiceResponse, Connect, Stream, Play, Say
+from twilio.twiml.voice_response import VoiceResponse, Start, Connect, Stream, Play, Say
 
 from app.config import settings
 
@@ -40,51 +40,80 @@ class TwilioService:
         return ws_url
 
     # ── Inbound call answer TwiML ──────────────────────────────────────────────
-    def twiml_answer(self, call_id: str) -> str:
+    def twiml_answer(self, call_id: str, tenant: Optional[Any] = None) -> str:
         """Return TwiML that opens a media stream for real-time audio processing."""
+        company_name = getattr(tenant, "name", None) if tenant else None
+        if not company_name:
+            company_name = settings.CLINIC_NAME
         resp = VoiceResponse()
         resp.say(
-            f"Hello! Thank you for calling {settings.CLINIC_NAME}. Please hold while I connect you.",
+            f"Hello, thank you for calling {company_name}. One moment please.",
             voice="Polly.Joanna",
             language="en-US",
         )
+        resp.pause(length=1)
         try:
-            connect = Connect()
             ws_url = self._build_ws_url(f"/v1/webhooks/call/ws/stream/{call_id}")
             logger.info("Twilio Media Stream URL (inbound): %s", ws_url)
-            stream = Stream(url=ws_url)
-            connect.append(stream)
-            resp.append(connect)
+            start = Start()
+            stream = Stream(
+                url=ws_url,
+                status_callback=f"{self.base_url}/v1/webhooks/call/stream/status",
+                status_callback_method="POST",
+            )
+            start.append(stream)
+            resp.append(start)
+            # Keep the call open while the stream is active.
+            resp.pause(length=60)
         except Exception as exc:
             logger.error("Failed to build WS URL for inbound call: %s", exc)
+            resp.say(
+                f"Hello, thank you for calling {company_name}.",
+                voice="Polly.Joanna",
+                language="en-US",
+            )
         return str(resp)
 
     # ── Outbound call TwiML (plays greeting then opens stream) ────────────────
     def twiml_outbound(self, call_id: str) -> str:
         resp = VoiceResponse()
         resp.say(
-            f"Hello, this is {settings.CLINIC_NAME}. Please hold while I connect you.",
+            f"Hello, this is {settings.CLINIC_NAME}. One moment please.",
             voice="Polly.Joanna",
             language="en-US",
         )
+        resp.pause(length=1)
         try:
-            connect = Connect()
             ws_url = self._build_ws_url(f"/v1/webhooks/call/ws/stream/{call_id}")
             logger.info("Twilio Media Stream URL (outbound): %s", ws_url)
-            stream = Stream(url=ws_url)
-            connect.append(stream)
-            resp.append(connect)
+            start = Start()
+            stream = Stream(
+                url=ws_url,
+                status_callback=f"{self.base_url}/v1/webhooks/call/stream/status",
+                status_callback_method="POST",
+            )
+            start.append(stream)
+            resp.append(start)
+            resp.pause(length=60)
         except Exception as exc:
             logger.error("Failed to build WS URL for outbound call: %s", exc)
+            resp.say(
+                f"Hello, this is {settings.CLINIC_NAME}.",
+                voice="Polly.Joanna",
+                language="en-US",
+            )
         return str(resp)
 
     # ── Reminder call TwiML (static TTS — no stream needed) ───────────────────
-    def twiml_reminder(self, message: str) -> str:
+    def twiml_reminder(self, message: str, tenant: Optional[Any] = None) -> str:
+        contact_phone = getattr(tenant, "phone", None) if tenant else None
+        if not contact_phone:
+            contact_phone = settings.CLINIC_PHONE
         resp = VoiceResponse()
         resp.say(message, voice="Polly.Joanna", language="en-US")
         resp.pause(length=2)
         resp.say(
-            f"If you need to reschedule, please call us at {settings.CLINIC_PHONE}. Thank you!",
+            f"If you need to reschedule, please call us at {contact_phone}. Thank you!",
             voice="Polly.Joanna", language="en-US",
         )
         return str(resp)

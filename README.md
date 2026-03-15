@@ -1,10 +1,11 @@
-﻿# Medical AI Receptionist Calling Agent
+# SAAS AI Receptionist Calling Agent
 
-AI-powered phone receptionist for a clinic.
+AI-powered phone receptionist for a clinic — **SaaS-ready**: multiple companies (hotel, medical, dental, spa, etc.) can register and each get their own AI receptionist.
 
 It handles inbound/outbound calls, answers common questions, does slot-filling appointment booking (name, doctor, reason, date/time, confirmation), stores data in MongoDB, and triggers reminder calls via Celery.
 
 ## Features
+- **SaaS multi-tenant**: Companies (medical, dental, hotel, spa, etc.) register via API; each gets their own receptionist behavior (name, hours, staff, greeting). Inbound calls are routed by Twilio “To” number to the right tenant.
 - Inbound call handling through Twilio voice webhooks + Media Streams WebSocket.
 - Outbound call API (`/v1/calls/outbound`).
 - Conversational receptionist with local LM Studio or OpenAI.
@@ -26,6 +27,8 @@ It handles inbound/outbound calls, answers common questions, does slot-filling a
 - `app/services/twilio_service.py`: Twilio helper functions.
 - `app/api/appointments.py`: appointment CRUD.
 - `app/api/calls.py`: outbound call API.
+- `app/api/tenants.py`: tenant registration and management (SaaS).
+- `app/services/tenant_service.py`: resolve tenant by ID or Twilio phone number.
 - `worker/tasks.py`: reminder and outbound Celery tasks.
 
 ## Requirements
@@ -58,7 +61,8 @@ Important `.env` keys:
 - `LLM_PROVIDER=openai|lmstudio`
 - `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL` (if local LLM)
 - `STT_PROVIDER`, `TTS_PROVIDER`
-- `CLINIC_NAME`, `CLINIC_PHONE`, `CLINIC_ADDRESS`, `CLINIC_HOURS`
+- `CLINIC_NAME`, `CLINIC_PHONE`, `CLINIC_ADDRESS`, `CLINIC_HOURS` (fallback when no tenant)
+- For SaaS: companies register with `POST /v1/tenants/register`; set `twilio_phone_number` per tenant so inbound calls resolve to the right company.
 
 ## Local LLM (LM Studio)
 If you use local model:
@@ -85,17 +89,18 @@ where ffmpeg
 ## Run (Local, 3 terminals)
 Terminal 1 - API:
 ```powershell
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Terminal 2 - Celery worker:
 ```powershell
-celery -A worker.tasks worker --loglevel=info --concurrency=4
+python -m celery -A worker.tasks worker --loglevel=info --concurrency=4
 ```
 
 Terminal 3 - Celery beat:
 ```powershell
-celery -A worker.tasks beat --loglevel=info
+python -m sudo service redis-server start
+python -m celery -A worker.tasks beat --loglevel=info
 ```
 
 Health/docs:
@@ -129,6 +134,49 @@ In Twilio Console (Phone Number -> Voice):
   - `https://<public-domain>/v1/webhooks/call/status?call_id=NEW`
   - Method: `POST`
 
+## SaaS: Multi-tenant setup
+Different companies (hotel, medical, dental, spa, etc.) register and get their own AI receptionist.
+
+1. **Register a company** (creates tenant + optional admin user):
+```bash
+curl -X POST http://localhost:8000/v1/tenants/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "company_type": "medical_diagnostic",
+    "name": "Sunrise Family Clinic",
+    "phone": "+8801888410789",
+    "address": "123 Medical Street, Dhaka",
+    "business_hours": "Sat-Thu 9 AM–8 PM",
+    "country": "BD",
+    "locale": "en-US",
+    "timezone": "Asia/Dhaka",
+    "twilio_phone_number": "+15551234567",
+    "receptionist_name": "Lisa",
+    "staff_list": [
+      {"name": "Dr. Rahman", "specialty": "General Medicine"},
+      {"name": "Dr. Sultana", "specialty": "Cardiology"}
+    ],
+    "admin_email": "admin@clinic.com",
+    "admin_name": "Admin"
+  }'
+```
+
+2. **Region/country and timezone (international SaaS)**: Each tenant has `country` (ISO 3166-1 alpha-2, e.g. BD, US, GB), `locale` (e.g. en-US, bn-BD), and `timezone` (IANA, e.g. Asia/Dhaka, America/New_York). All appointment times are stored in UTC and displayed in the tenant's timezone (confirmations, reminders, and agent replies).
+
+3. **Assign Twilio number to tenant**: In Twilio, buy or use a number. Set that number’s Voice webhook to the same app URL. In the tenant record, set `twilio_phone_number` to that number (E.164). When a call comes in to that number, the app resolves the tenant by “To” and the receptionist uses that company’s name, hours, and staff.
+
+4. **Optional**: Create an index on `tenants.twilio_phone_number` for fast lookup:
+```javascript
+db.tenants.createIndex({ twilio_phone_number: 1 }, { sparse: true })
+```
+
+5. **Outbound calls**: Use `POST /v1/calls/outbound` with `tenant_id` in the body to run the call with that tenant’s receptionist.
+
+Tenant APIs:
+- `POST /v1/tenants/register` — register company
+- `GET /v1/tenants/{tenant_id}` — get tenant
+- `PATCH /v1/tenants/{tenant_id}` — update tenant
+
 ## How Conversation Works
 Inbound call flow:
 1. Twilio hits `/v1/webhooks/call/answer`.
@@ -160,8 +208,13 @@ Behavior:
 Base prefix: `/v1`
 
 Calls:
-- `POST /calls/outbound`
+- `POST /calls/outbound` (body may include `tenant_id` for SaaS)
 - `GET /calls/{call_id}`
+
+Tenants (SaaS):
+- `POST /tenants/register`
+- `GET /tenants/{tenant_id}`
+- `PATCH /tenants/{tenant_id}`
 
 Appointments:
 - `POST /appointments/`

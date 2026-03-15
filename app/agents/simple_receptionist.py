@@ -7,11 +7,17 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _company_name(tenant: Optional[Any]) -> str:
+    if tenant is not None and hasattr(tenant, "name"):
+        return getattr(tenant, "name", settings.CLINIC_NAME)
+    return settings.CLINIC_NAME
 
 
 @dataclass
@@ -21,6 +27,7 @@ class CallContext:
     direction: str = "inbound"  # inbound | outbound
     is_reminder_call: bool = False
     appointment_id: Optional[str] = None
+    tenant: Optional[Any] = None  # SaaS: company for this call
 
     transcript_segments: List[Dict] = field(default_factory=list)
     patient_name: Optional[str] = None
@@ -65,19 +72,20 @@ class SimpleReceptionist:
         self.ctx = ctx
 
     def generate_greeting(self) -> str:
+        name = _company_name(self.ctx.tenant)
         if self.ctx.is_reminder_call:
             text = (
-                f"Hello, this is a reminder from {settings.CLINIC_NAME}. "
+                f"Hello, this is a reminder from {name}. "
                 "How can I help you today?"
             )
         elif self.ctx.direction == "outbound":
             text = (
-                f"Hello, this is {settings.CLINIC_NAME}. "
+                f"Hello, this is {name}. "
                 "I’m calling to help schedule your appointment."
             )
         else:
             text = (
-                f"Hello! Thank you for calling {settings.CLINIC_NAME}. "
+                f"Hello! Thank you for calling {name}. "
                 "How can I help you today?"
             )
         self.ctx.add_turn("receptionist", text)

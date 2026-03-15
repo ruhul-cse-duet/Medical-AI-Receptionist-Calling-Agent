@@ -31,6 +31,14 @@ def get_db() -> AsyncIOMotorDatabase:
 
 
 # Collection helpers
+def tenants_col():
+    return get_db()["tenants"]
+
+
+def users_col():
+    return get_db()["users"]
+
+
 def patients_col():
     return get_db()["patients"]
 

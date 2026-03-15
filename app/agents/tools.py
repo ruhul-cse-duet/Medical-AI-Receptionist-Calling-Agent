@@ -1,12 +1,13 @@
 """
 CrewAI Tools — MongoDB operations exposed as @tool for agents
 Each tool is a standalone async-compatible function the agent calls directly.
+SaaS: when a tenant is set (via set_current_tenant), tools use tenant's name, hours, staff; else fall back to settings.
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from crewai.tools import tool
 
@@ -14,21 +15,45 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Doctor roster — extend freely
-DOCTORS = [
-    {"name": "Dr. Rahman",    "specialty": "General Medicine"},
-    {"name": "Dr. Sultana",   "specialty": "Cardiology"},
-    {"name": "Dr. Hossain",   "specialty": "Orthopedics"},
-    {"name": "Dr. Ahmed",     "specialty": "Pediatrics"},
+# Default doctor roster when no tenant staff_list (backward compatible)
+DEFAULT_DOCTORS: List[Dict[str, Any]] = [
+    {"name": "Dr. Rahman", "specialty": "General Medicine"},
+    {"name": "Dr. Sultana", "specialty": "Cardiology"},
+    {"name": "Dr. Hossain", "specialty": "Orthopedics"},
+    {"name": "Dr. Ahmed", "specialty": "Pediatrics"},
     {"name": "Dr. Chowdhury", "specialty": "Dermatology"},
-    {"name": "Dr. Islam",     "specialty": "Neurology"},
+    {"name": "Dr. Islam", "specialty": "Neurology"},
 ]
+
+
+def _company_info() -> tuple[str, str, str, str, List[Dict[str, Any]]]:
+    """Return (name, phone, address, hours, staff_list) from current tenant or settings."""
+    from app.services.tenant_service import get_current_tenant
+    t = get_current_tenant()
+    if t:
+        staff = t.staff_list if t.staff_list else DEFAULT_DOCTORS
+        return (t.name, t.phone, t.address or "", t.business_hours or "", staff)
+    return (
+        settings.CLINIC_NAME,
+        settings.CLINIC_PHONE,
+        settings.CLINIC_ADDRESS,
+        settings.CLINIC_HOURS,
+        DEFAULT_DOCTORS,
+    )
+
+
+def _tenant_id() -> str:
+    """Return current tenant_id for DB scoping; empty string if no tenant."""
+    from app.services.tenant_service import get_current_tenant
+    t = get_current_tenant()
+    return t.id if t else ""
 
 
 # ── Helper: get collections without importing at module-level ─────────────────
 def _appointments_col():
     from app.db.base import appointments_col
     return appointments_col()
+
 
 def _patients_col():
     from app.db.base import patients_col
@@ -41,19 +66,19 @@ def _patients_col():
 @tool("check_available_doctors")
 def check_available_doctors(query: str = "") -> str:
     """
-    Returns the list of doctors available at the clinic with their specialties.
+    Returns the list of doctors/staff available at the clinic with their specialties.
     Call this when the patient asks who is available or needs a specific specialty.
     Input: any string (e.g. 'all' or specialty keyword like 'cardiology').
     """
+    name, _phone, _addr, _hours, staff = _company_info()
     if query and query.strip().lower() not in ("all", "", "list"):
         keyword = query.lower()
-        filtered = [d for d in DOCTORS if keyword in d["specialty"].lower()]
+        filtered = [d for d in staff if keyword in (d.get("specialty") or "").lower()]
         if filtered:
-            lines = [f"• {d['name']} — {d['specialty']}" for d in filtered]
+            lines = [f"• {d.get('name', '')} — {d.get('specialty', '')}" for d in filtered]
             return "Matching doctors:\n" + "\n".join(lines)
-
-    lines = [f"• {d['name']} — {d['specialty']}" for d in DOCTORS]
-    return f"Available doctors at {settings.CLINIC_NAME}:\n" + "\n".join(lines)
+    lines = [f"• {d.get('name', '')} — {d.get('specialty', '')}" for d in staff]
+    return f"Available doctors at {name}:\n" + "\n".join(lines)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,22 +115,26 @@ def book_appointment(
         except ValueError:
             return "ERROR: Invalid date format. Use ISO 8601, e.g. 2025-03-10T10:00:00Z"
 
-        # Validate doctor name
-        valid_names = [d["name"].lower() for d in DOCTORS]
+        _name, _ph, _addr, _hours, staff = _company_info()
+        valid_names = [str(d.get("name", "")).lower() for d in staff]
         if doctor_name.lower() not in valid_names:
             return f"ERROR: Doctor '{doctor_name}' not found. Please check available doctors."
 
-        # Upsert patient
-        existing = await _patients_col().find_one({"phone": patient_phone})
+        tid = _tenant_id()
+        # Upsert patient (scoped by tenant)
+        q = {"phone": patient_phone}
+        if tid:
+            q["tenant_id"] = tid
+        existing = await _patients_col().find_one(q)
         if existing:
             patient_id = existing["id"]
         else:
-            patient = Patient(name=patient_name, phone=patient_phone)
+            patient = Patient(tenant_id=tid, name=patient_name, phone=patient_phone)
             await _patients_col().insert_one(patient.model_dump())
             patient_id = patient.id
 
-        # Create appointment
         appt = Appointment(
+            tenant_id=tid,
             patient_id=patient_id,
             patient_name=patient_name,
             patient_phone=patient_phone,
@@ -116,7 +145,9 @@ def book_appointment(
         )
         await _appointments_col().insert_one(appt.model_dump())
 
-        local_time = scheduled_at.strftime("%A, %B %d %Y at %I:%M %p UTC")
+        from app.utils.datetime_utils import format_datetime_tenant
+        from app.services.tenant_service import get_current_tenant
+        local_time = format_datetime_tenant(scheduled_at, get_current_tenant())
         return (
             f"✅ Appointment booked successfully!\n"
             f"  ID: {appt.id}\n"
@@ -157,13 +188,19 @@ def get_appointment_details(appointment_id: str) -> str:
     import asyncio
 
     async def _fetch():
-        doc = await _appointments_col().find_one({"id": appointment_id}, {"_id": 0})
+        tid = _tenant_id()
+        q = {"id": appointment_id}
+        if tid:
+            q["tenant_id"] = tid
+        doc = await _appointments_col().find_one(q, {"_id": 0})
         if not doc:
             return f"ERROR: Appointment '{appointment_id}' not found."
+        from app.utils.datetime_utils import format_datetime_tenant
+        from app.services.tenant_service import get_current_tenant
         dt = doc.get("scheduled_at")
         if isinstance(dt, str):
-            dt = datetime.fromisoformat(dt)
-        time_str = dt.strftime("%A, %B %d %Y at %I:%M %p UTC") if dt else "Unknown"
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        time_str = format_datetime_tenant(dt, get_current_tenant()) if dt else "Unknown"
         return (
             f"Appointment Details:\n"
             f"  Patient: {doc.get('patient_name')}\n"
@@ -194,16 +231,21 @@ def get_appointment_details(appointment_id: str) -> str:
 @tool("get_clinic_info")
 def get_clinic_info(query: str = "") -> str:
     """
-    Returns clinic information: name, address, phone, working hours.
-    Use when patients ask about the clinic location, hours, or contact.
+    Returns clinic/business information: name, address, phone, working hours, timezone.
+    Use when patients ask about the location, hours, or contact.
 
     Args:
         query: What the patient wants to know (e.g. 'hours', 'address', 'phone').
     """
+    from app.services.tenant_service import get_current_tenant
+    name, phone, address, hours = _company_info()[:4]
+    tenant = get_current_tenant()
+    tz = getattr(tenant, "timezone", None) if tenant else None
+    tz_line = f"\n  Timezone: {tz}" if tz else ""
     return (
-        f"Clinic Information:\n"
-        f"  Name: {settings.CLINIC_NAME}\n"
-        f"  Phone: {settings.CLINIC_PHONE}\n"
-        f"  Address: {settings.CLINIC_ADDRESS}\n"
-        f"  Working Hours: {settings.CLINIC_HOURS}"
+        f"Business Information:\n"
+        f"  Name: {name}\n"
+        f"  Phone: {phone}\n"
+        f"  Address: {address}\n"
+        f"  Working Hours: {hours}{tz_line}"
     )

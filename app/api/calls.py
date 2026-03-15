@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 class OutboundCallRequest(BaseModel):
     patient_phone: str      # E.164 format
     patient_name: str = ""
+    tenant_id: str = ""     # SaaS: optional; if set, call uses this tenant's receptionist
 
 
 @router.post("/outbound", summary="Initiate outbound AI call to a patient")
@@ -27,6 +28,7 @@ async def initiate_outbound_call(body: OutboundCallRequest):
     call_id = str(uuid.uuid4())
     call_doc = Call(
         id=call_id,
+        tenant_id=body.tenant_id or "",
         patient_phone=body.patient_phone,
         direction=CallDirection.OUTBOUND,
         status=CallStatus.INITIATED,
