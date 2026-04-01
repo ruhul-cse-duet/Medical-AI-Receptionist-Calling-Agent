@@ -364,12 +364,29 @@ async def audio_stream(websocket: WebSocket, call_id: str):
 
     utterance_queue: asyncio.Queue[str] = asyncio.Queue()
     last_ai_reply: dict[str, str] = {"text": ""}
+    last_patient_text: dict[str, str] = {"text": ""}
+    last_patient_ts: dict[str, float] = {"ts": 0.0}
     tts_playing_until = 0.0
     tts_started_at = 0.0
     last_user_activity = time.time()
+    pending_parts: list[str] = []
+    pending_flush_task: asyncio.Task | None = None
+    closing_requested = False
+    closing_sent = False
+    awaiting_user_turn = True
 
     def _normalize_text(text: str) -> str:
         return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+    def _is_goodbye_intent(text: str) -> bool:
+        n = _normalize_text(text)
+        if not n:
+            return False
+        keys = [
+            "bye", "bye bye", "goodbye", "take care", "see you",
+            "thank you bye", "thanks bye", "allah hafez", "khoda hafez", "biday",
+        ]
+        return any(k in n for k in keys)
 
     def _is_echo(text: str, last_reply: str) -> bool:
         if not text or not last_reply:
@@ -387,35 +404,71 @@ async def audio_stream(websocket: WebSocket, call_id: str):
         if not u_tokens or not a_tokens:
             return False
         overlap = len(u_tokens & a_tokens) / max(1, len(u_tokens))
-        return overlap >= 0.8 and len(u_tokens) <= 6
+        return overlap >= 0.6 and len(u_tokens) <= 18
+
+    async def _flush_pending_user_utterance(delay: float = 1.0) -> None:
+        await asyncio.sleep(delay)
+        if not pending_parts:
+            return
+        merged = " ".join(pending_parts).strip()
+        pending_parts.clear()
+        if len(merged) < 2:
+            return
+        norm_merged = _normalize_text(merged)
+        if norm_merged == _normalize_text(last_patient_text.get("text", "")) and time.time() - last_patient_ts["ts"] < 3.0:
+            return
+        last_patient_text["text"] = merged
+        last_patient_ts["ts"] = time.time()
+        await utterance_queue.put(merged)
 
     async def on_transcript(text: str, is_final: bool) -> None:
-        nonlocal last_user_activity
+        nonlocal last_user_activity, pending_flush_task
         if is_final and text.strip():
-            # Allow barge-in: only suppress transcripts right at TTS start.
-            if time.time() < tts_started_at + 0.8:
-                logger.info("Ignoring transcript at TTS start on call %s: %s", call_id, text)
+            if closing_requested:
+                return
+            # Strict turn-taking: while AI is speaking, ignore incoming transcript.
+            if (not awaiting_user_turn) or (time.time() < tts_playing_until + 0.2):
+                logger.info("Ignoring transcript while AI turn is active on call %s: %s", call_id, text)
                 return
             if _is_echo(text, last_ai_reply.get("text", "")):
                 logger.info("Ignoring probable echo on call %s: %s", call_id, text)
                 return
             last_user_activity = time.time()
-            await utterance_queue.put(text)
+            normalized = text.strip()
+            if len(_normalize_text(normalized)) < 2:
+                return
+            if pending_parts:
+                prev = pending_parts[-1].strip().lower()
+                cur = normalized.lower()
+                if cur == prev:
+                    return
+            pending_parts.append(normalized)
+            if pending_flush_task and not pending_flush_task.done():
+                pending_flush_task.cancel()
+            pending_flush_task = asyncio.create_task(_flush_pending_user_utterance(1.0))
 
     stt_conn = await stt.start_streaming_session(on_transcript)
 
     async def process_loop():
-        nonlocal twilio_sid, stream_sid
+        nonlocal twilio_sid, stream_sid, tts_started_at, tts_playing_until, closing_requested, closing_sent, awaiting_user_turn
         inactivity_warning_sent = False
         max_inactivity_seconds = 180  # 3 minutes of silence before warning
         
         while not ctx.call_ended:
             try:
                 utterance = await asyncio.wait_for(utterance_queue.get(), timeout=1.0)
+                if closing_requested:
+                    continue
+                awaiting_user_turn = False
                 logger.info("Patient[%s]: %s", call_id, utterance)
                 inactivity_warning_sent = False  # Reset warning flag on activity
 
-                ai_reply = await _run_sync(crew_session.process_utterance, utterance)
+                if _is_goodbye_intent(utterance):
+                    ai_reply = "Thank you for calling HealthCare Medical Center. Have a great day. Goodbye."
+                    closing_requested = True
+                    closing_sent = True
+                else:
+                    ai_reply = await _run_sync(crew_session.process_utterance, utterance)
                 logger.info("AI[%s]: %s", call_id, str(ai_reply)[:80])
 
                 if ai_reply and stream_sid:
@@ -424,6 +477,7 @@ async def audio_stream(websocket: WebSocket, call_id: str):
                         tts_started_at = time.time()
                         dur = await _deliver_tts_ws(websocket, stream_sid, tts, str(ai_reply))
                         tts_playing_until = time.time() + dur
+                        awaiting_user_turn = True
                     except WebSocketDisconnect:
                         logger.warning("WebSocket disconnected during TTS delivery for call %s", call_id)
                         raise
@@ -432,8 +486,18 @@ async def audio_stream(websocket: WebSocket, call_id: str):
                         if twilio_sid:
                             try:
                                 await _deliver_tts(tts, twilio_sid, str(ai_reply), call_id)
+                                awaiting_user_turn = True
                             except Exception as fallback_exc:
                                 logger.error("Fallback TTS delivery also failed: %s", fallback_exc, exc_info=True)
+                    if closing_sent:
+                        ctx.end_call()
+                        try:
+                            await websocket.close()
+                        except Exception:
+                            pass
+                        break
+                else:
+                    awaiting_user_turn = True
 
             except asyncio.TimeoutError:
                 # Check for inactivity and send keepalive
@@ -442,13 +506,18 @@ async def audio_stream(websocket: WebSocket, call_id: str):
                     logger.info("Call %s: %d seconds of inactivity, sending keepalive message", call_id, int(inactivity))
                     try:
                         keepalive_msg = "I'm still here if you need anything. Are you still there?"
+                        awaiting_user_turn = False
+                        tts_started_at = time.time()
                         await _deliver_tts_ws(websocket, stream_sid, tts, keepalive_msg)
+                        tts_playing_until = time.time() + 2.0
+                        awaiting_user_turn = True
                         inactivity_warning_sent = True
                     except Exception as ka_exc:
                         logger.warning("Keepalive message failed: %s", ka_exc)
                 continue
             except Exception as exc:
                 logger.error("process_loop error call=%s: %s", call_id, exc, exc_info=True)
+                awaiting_user_turn = True
 
     proc_task = asyncio.create_task(process_loop())
 
@@ -476,20 +545,30 @@ async def audio_stream(websocket: WebSocket, call_id: str):
                     greeting = await _run_sync(crew_session.generate_greeting)
                     logger.info("Greeting[%s]: %s", call_id, str(greeting)[:80])
                     try:
+                        awaiting_user_turn = False
                         tts_started_at = time.time()
                         dur = await _deliver_tts_ws(websocket, stream_sid, tts, str(greeting))
                         tts_playing_until = time.time() + dur
+                        awaiting_user_turn = True
                     except Exception as ws_greet_exc:
                         logger.warning("WS greeting failed (fallback to call update): %s", ws_greet_exc, exc_info=True)
                         if twilio_sid:
                             try:
                                 await _deliver_tts(tts, twilio_sid, str(greeting), call_id)
+                                awaiting_user_turn = True
                             except Exception as fallback_greet_exc:
                                 logger.error("Fallback greeting delivery failed: %s", fallback_greet_exc, exc_info=True)
                     is_new_session = False
             elif event == "media":
                 try:
-                    audio = base64.b64decode(data["media"]["payload"])
+                    media = data.get("media", {})
+                    track = media.get("track")
+                    if track and track != "inbound":
+                        continue
+                    payload = media.get("payload")
+                    if not payload:
+                        continue
+                    audio = base64.b64decode(payload)
                     stt_conn.send(audio)
                 except Exception as media_exc:
                     logger.warning("Error processing media event call=%s: %s", call_id, media_exc)
@@ -505,6 +584,8 @@ async def audio_stream(websocket: WebSocket, call_id: str):
         logger.error("WS error call=%s: %s", call_id, exc, exc_info=True)
     finally:
         proc_task.cancel()
+        if pending_flush_task and not pending_flush_task.done():
+            pending_flush_task.cancel()
         try:
             await proc_task
         except asyncio.CancelledError:

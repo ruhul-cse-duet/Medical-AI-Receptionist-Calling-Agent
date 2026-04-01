@@ -42,16 +42,7 @@ class TwilioService:
     # ── Inbound call answer TwiML ──────────────────────────────────────────────
     def twiml_answer(self, call_id: str, tenant: Optional[Any] = None) -> str:
         """Return TwiML that opens a media stream for real-time audio processing."""
-        company_name = getattr(tenant, "name", None) if tenant else None
-        if not company_name:
-            company_name = settings.CLINIC_NAME
         resp = VoiceResponse()
-        resp.say(
-            f"Hello, thank you for calling {company_name}. One moment please.",
-            voice="Polly.Joanna",
-            language="en-US",
-        )
-        resp.pause(length=1)
         try:
             ws_url = self._build_ws_url(f"/v1/webhooks/call/ws/stream/{call_id}")
             logger.info("Twilio Media Stream URL (inbound): %s", ws_url)
@@ -65,11 +56,10 @@ class TwilioService:
             resp.append(connect)
         except Exception as exc:
             logger.error("Failed to build WS URL for inbound call: %s", exc)
-            resp.say(
-                f"Hello, thank you for calling {company_name}.",
-                voice="Polly.Joanna",
-                language="en-US",
-            )
+            company_name = getattr(tenant, "name", None) if tenant else None
+            if not company_name:
+                company_name = settings.CLINIC_NAME
+            resp.say(f"Hello, thank you for calling {company_name}.", voice="Polly.Joanna", language="en-US")
         return str(resp)
 
     # ── Inject TTS audio into live call ───────────────────────────────────────

@@ -155,6 +155,14 @@ BOOKING_KEYWORDS = {
     "book", "booking", "appointment", "schedule", "serial", "visit", "see doctor",
     "book korte", "appointment nibo", "doctor dekhate", "serial nite",
 }
+GOODBYE_WORDS = {
+    "bye", "bye bye", "goodbye", "take care", "see you", "thanks bye", "thank you bye",
+    "allah hafez", "khoda hafez", "biday",
+}
+ACK_ONLY_WORDS = {
+    "ok", "okay", "hmm", "hmmm", "yeah", "yep", "sure", "right", "alright",
+    "thanks", "thank you", "got it", "i see", "understood", "hya", "haan", "ji",
+}
 
 
 @dataclass
@@ -182,6 +190,20 @@ class BookingState:
 def _contains_booking_intent(text: str) -> bool:
     t = (text or "").lower()
     return any(k in t for k in BOOKING_KEYWORDS)
+
+
+def _is_goodbye_intent(text: str) -> bool:
+    t = (text or "").lower().strip()
+    return any(w in t for w in GOODBYE_WORDS)
+
+
+def _is_ack_only(text: str) -> bool:
+    t = re.sub(r"[^a-z0-9\s]+", " ", (text or "").lower()).strip()
+    if not t:
+        return True
+    if len(t.split()) > 4:
+        return False
+    return t in ACK_ONLY_WORDS
 
 
 def _extract_name(text: str) -> Optional[str]:
@@ -401,7 +423,10 @@ def _build_receptionist_agent(tenant: Optional[Any] = None) -> Agent:
             f"{('Clinic profile: ' + profile + '. ') if profile else ''}"
             "You speak naturally like a real human on the phone. "
             "Never mention that you are an AI, model, bot, assistant, or automated system unless the caller directly asks. "
-            "Keep responses concise and conversational (1-3 sentences max for phone calls). "
+            "Keep responses concise and conversational (1-2 sentences for most turns, max 3 only if needed). "
+            "Sound like an experienced front-desk executive: calm, polite, and confident. "
+            "Do not use repetitive filler phrases like 'How can I assist you today?' on every turn. "
+            "Acknowledge the caller's exact point first, then ask at most one focused follow-up question. "
             "Strictly mirror the caller's language style: "
             "if they speak mostly English, reply only in English; "
             "if they speak mostly Bangla, reply only in Bangla; "
@@ -432,6 +457,7 @@ def _build_greeting_agent(tenant: Optional[Any] = None) -> Agent:
             "You can speak Bangla, English, or mixed Banglish. "
             "For the opening greeting, keep it very short and friendly (1â€“2 sentences). "
             "Always greet in a single clear language based on the caller's style. "
+            "Avoid sounding scripted and use natural professional phone phrasing. "
             "For this greeting output, return only the exact words you would say out loud, "
             "with no labels, no reasoning, and no explanations."
         ),
@@ -528,6 +554,15 @@ class MedicalReceptionistCrew:
         t = (patient_text or "").strip()
         low = t.lower()
         booking = self.ctx.booking
+
+        if _is_goodbye_intent(low):
+            response = "Thank you for calling HealthCare Medical Center. Have a great day. Goodbye."
+            self.ctx.add_turn("receptionist", response)
+            return response
+
+        if _is_ack_only(low) and not booking.active:
+            # Natural silence on backchannel-only utterances avoids robotic over-talking.
+            return ""
 
         if any(k in low for k in ["cancel booking", "stop booking", "booking cancel"]):
             self.ctx.booking = BookingState()
@@ -634,7 +669,9 @@ class MedicalReceptionistCrew:
             "Return only spoken reply text, no labels and no reasoning. "
             "Do not mention being an AI/model unless the patient directly asks. "
             "Speak like a human receptionist in Bangladesh; Bangla, English, or mixed Banglish based on patient style. "
-            "Keep your spoken response short and practical."
+            "Keep your spoken response short and practical. "
+            "Do not repeat the same stock sentence in consecutive turns. "
+            "Use one clear response and, only if needed, one focused follow-up question."
         )
 
         response_task = Task(
