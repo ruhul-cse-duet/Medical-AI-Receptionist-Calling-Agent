@@ -49,8 +49,8 @@ def create_app() -> FastAPI:
         title=settings.APP_NAME,
         version="1.0.0",
         description=(
-            "AI-powered medical receptionist — handles inbound & outbound calls, "
-            "books appointments in MongoDB, and sends reminder calls 5 hours before."
+            "AI-powered medical receptionist — handles inbound calls, "
+            "books appointments in MongoDB, and provides conversational assistance."
         ),
         docs_url="/docs" if settings.DEBUG else None,
         redoc_url=None,
@@ -99,9 +99,10 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=settings.DEBUG)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8003, reload=settings.DEBUG)
 
 
-# python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# python -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
 
 # 192.168.0.194
+# 10.10.20.111

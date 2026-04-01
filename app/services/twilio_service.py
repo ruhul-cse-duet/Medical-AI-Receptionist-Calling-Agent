@@ -1,5 +1,5 @@
 """
-Twilio Service — TwiML, outbound calls, TTS injection, SMS
+Twilio Service - inbound TwiML, stream management, and live TTS injection.
 """
 from __future__ import annotations
 import logging
@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import httpx
 from twilio.rest import Client
-from twilio.twiml.voice_response import VoiceResponse, Start, Connect, Stream, Play, Say
+from twilio.twiml.voice_response import VoiceResponse, Connect, Stream
 
 from app.config import settings
 
@@ -55,16 +55,14 @@ class TwilioService:
         try:
             ws_url = self._build_ws_url(f"/v1/webhooks/call/ws/stream/{call_id}")
             logger.info("Twilio Media Stream URL (inbound): %s", ws_url)
-            start = Start()
             stream = Stream(
                 url=ws_url,
                 status_callback=f"{self.base_url}/v1/webhooks/call/stream/status",
                 status_callback_method="POST",
             )
-            start.append(stream)
-            resp.append(start)
-            # Keep the call open while the stream is active.
-            resp.pause(length=60)
+            connect = Connect()
+            connect.append(stream)
+            resp.append(connect)
         except Exception as exc:
             logger.error("Failed to build WS URL for inbound call: %s", exc)
             resp.say(
@@ -73,75 +71,6 @@ class TwilioService:
                 language="en-US",
             )
         return str(resp)
-
-    # ── Outbound call TwiML (plays greeting then opens stream) ────────────────
-    def twiml_outbound(self, call_id: str) -> str:
-        resp = VoiceResponse()
-        resp.say(
-            f"Hello, this is {settings.CLINIC_NAME}. One moment please.",
-            voice="Polly.Joanna",
-            language="en-US",
-        )
-        resp.pause(length=1)
-        try:
-            ws_url = self._build_ws_url(f"/v1/webhooks/call/ws/stream/{call_id}")
-            logger.info("Twilio Media Stream URL (outbound): %s", ws_url)
-            start = Start()
-            stream = Stream(
-                url=ws_url,
-                status_callback=f"{self.base_url}/v1/webhooks/call/stream/status",
-                status_callback_method="POST",
-            )
-            start.append(stream)
-            resp.append(start)
-            resp.pause(length=60)
-        except Exception as exc:
-            logger.error("Failed to build WS URL for outbound call: %s", exc)
-            resp.say(
-                f"Hello, this is {settings.CLINIC_NAME}.",
-                voice="Polly.Joanna",
-                language="en-US",
-            )
-        return str(resp)
-
-    # ── Reminder call TwiML (static TTS — no stream needed) ───────────────────
-    def twiml_reminder(self, message: str, tenant: Optional[Any] = None) -> str:
-        contact_phone = getattr(tenant, "phone", None) if tenant else None
-        if not contact_phone:
-            contact_phone = settings.CLINIC_PHONE
-        resp = VoiceResponse()
-        resp.say(message, voice="Polly.Joanna", language="en-US")
-        resp.pause(length=2)
-        resp.say(
-            f"If you need to reschedule, please call us at {contact_phone}. Thank you!",
-            voice="Polly.Joanna", language="en-US",
-        )
-        return str(resp)
-
-    # ── Initiate outbound call ─────────────────────────────────────────────────
-    async def initiate_outbound_call(
-        self,
-        to_phone: str,
-        call_id: str,
-        is_reminder: bool = False,
-        reminder_message: Optional[str] = None,
-    ) -> str:
-        """Returns Twilio CallSid."""
-        if is_reminder and reminder_message:
-            # Simple reminder — no stream, just TTS
-            url = f"{self.base_url}/v1/webhooks/call/reminder?call_id={call_id}"
-        else:
-            url = f"{self.base_url}/v1/webhooks/call/answer?call_id={call_id}"
-
-        call = self.client.calls.create(
-            to=to_phone,
-            from_=self.from_number,
-            url=url,
-            status_callback=f"{self.base_url}/v1/webhooks/call/status?call_id={call_id}",
-            status_callback_method="POST",
-        )
-        logger.info("Outbound call initiated to=%s sid=%s", to_phone, call.sid)
-        return call.sid
 
     # ── Inject TTS audio into live call ───────────────────────────────────────
     async def inject_tts_to_call(self, call_sid: str, audio_url: str, call_id: str) -> None:

@@ -283,7 +283,17 @@ class STTService:
             )
         elif self.provider == "openai":
             if not settings.OPENAI_API_KEY:
-                raise ValueError("OPENAI_API_KEY is required for STT_PROVIDER=openai")
+                logger.warning(
+                    "OPENAI_API_KEY missing for STT_PROVIDER=openai; "
+                    "falling back to faster_whisper."
+                )
+                self.provider = "faster_whisper"
+                from faster_whisper import WhisperModel
+                self.model = WhisperModel(
+                    settings.FASTER_WHISPER_MODEL,
+                    device=settings.FASTER_WHISPER_DEVICE,
+                    compute_type=settings.FASTER_WHISPER_COMPUTE_TYPE,
+                )
         else:
             raise ValueError(f"Unknown STT_PROVIDER: {self.provider}")
 

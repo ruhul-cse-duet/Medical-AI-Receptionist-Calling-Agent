@@ -116,6 +116,7 @@ class TTSService:
                 model=settings.OPENAI_TTS_MODEL,
                 voice=settings.OPENAI_TTS_VOICE,
                 input=text,
+                response_format="wav",
             )
             audio = response.content
             if not audio:
@@ -126,7 +127,7 @@ class TTSService:
                 len(text),
                 len(audio),
             )
-            return audio, "audio/mpeg"
+            return audio, "audio/wav"
         except Exception as exc:
             raise RuntimeError(f"OpenAI TTS failed: {exc}") from exc
 

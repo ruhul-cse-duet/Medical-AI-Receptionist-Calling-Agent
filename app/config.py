@@ -43,11 +43,6 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "medical_receptionist"
 
-    # ── Redis / Celery ────────────────────────────────────────────────────────
-    REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
-
     # ── Twilio ────────────────────────────────────────────────────────────────
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
@@ -95,8 +90,6 @@ class Settings(BaseSettings):
     CLINIC_PHONE: str = "+8801XXXXXXXXX"
     CLINIC_ADDRESS: str = "123 Medical Street, Dhaka, Bangladesh"
     CLINIC_HOURS: str = "Saturday to Thursday, 9 AM to 8 PM"
-
-    # ── Reminder ──────────────────────────────────────────────────────────────
     REMINDER_HOURS_BEFORE: int = 5
 
     # ── Security ──────────────────────────────────────────────────────────────

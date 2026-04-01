@@ -24,7 +24,7 @@ def _company_name(tenant: Optional[Any]) -> str:
 class CallContext:
     call_id: str
     patient_phone: str
-    direction: str = "inbound"  # inbound | outbound
+    direction: str = "inbound"
     is_reminder_call: bool = False
     appointment_id: Optional[str] = None
     tenant: Optional[Any] = None  # SaaS: company for this call
@@ -73,21 +73,10 @@ class SimpleReceptionist:
 
     def generate_greeting(self) -> str:
         name = _company_name(self.ctx.tenant)
-        if self.ctx.is_reminder_call:
-            text = (
-                f"Hello, this is a reminder from {name}. "
-                "How can I help you today?"
-            )
-        elif self.ctx.direction == "outbound":
-            text = (
-                f"Hello, this is {name}. "
-                "I’m calling to help schedule your appointment."
-            )
-        else:
-            text = (
-                f"Hello! Thank you for calling {name}. "
-                "How can I help you today?"
-            )
+        text = (
+            f"Hello! Thank you for calling {name}. "
+            "How can I help you today?"
+        )
         self.ctx.add_turn("receptionist", text)
         return text
 

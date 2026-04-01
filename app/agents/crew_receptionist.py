@@ -1,12 +1,11 @@
 ﻿"""
 CrewAI Medical Receptionist
 ============================
-Multi-agent crew for handling inbound/outbound medical calls.
+Multi-agent crew for handling inbound medical calls.
 
 Agents:
   1. ReceptionistAgent  â€” main conversational agent (greets, collects info)
   2. AppointmentAgent   â€” specialist for booking & managing appointments
-  3. ReminderAgent      â€” handles reminder call content
 
 LLM Support:
   - Cloud  â†’ OpenAI GPT-4o          (LLM_PROVIDER=openai in .env)
@@ -342,9 +341,9 @@ def _build_llm(temperature: float = 0.7) -> LLM:
 class CallContext:
     call_id: str
     patient_phone: str
-    direction: str = "inbound"           # inbound | outbound
+    direction: str = "inbound"
     is_reminder_call: bool = False
-    appointment_id: Optional[str] = None  # for reminder calls
+    appointment_id: Optional[str] = None
     tenant: Optional[Any] = None         # SaaS: company (Tenant) for this call; None = single-tenant fallback
 
     # Conversation history (plain text for context injection)
@@ -463,25 +462,6 @@ def _build_appointment_agent(tenant: Optional[Any] = None) -> Agent:
     )
 
 
-def _build_reminder_agent(tenant: Optional[Any] = None) -> Agent:
-    """Handles outbound reminder calls â€” fetches appointment and generates reminder message."""
-    name, _h, _a, _p, _r = _tenant_company_info(tenant)
-    return Agent(
-        role="Appointment Reminder Agent",
-        goal="Remind patients about their upcoming appointments in a warm, friendly way.",
-        backstory=(
-            f"You call patients on behalf of {name} to remind them of appointments. "
-            "Fetch the appointment details, then deliver a natural, friendly reminder. "
-            "Confirm they can attend. If they want to reschedule, note it and ask them to call back."
-        ),
-        tools=[get_appointment_details, get_clinic_info],
-        llm=_build_llm(temperature=0.6),
-        verbose=False,
-        allow_delegation=False,
-        max_iter=2,
-    )
-
-
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CREW â€” orchestrates agents for one call session
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -500,7 +480,6 @@ class MedicalReceptionistCrew:
         self.receptionist = _build_receptionist_agent(ctx.tenant)
         self.greeter = _build_greeting_agent(ctx.tenant)
         self.appointment_specialist = _build_appointment_agent(ctx.tenant)
-        self.reminder_agent = _build_reminder_agent(ctx.tenant)
 
     # â”€â”€ Generate opening greeting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def generate_greeting(self) -> str:
@@ -508,25 +487,11 @@ class MedicalReceptionistCrew:
         ctx = self.ctx
         set_current_tenant(ctx.tenant)
         name, _h, _a, _p, _r = _tenant_company_info(ctx.tenant)
-        if ctx.is_reminder_call and ctx.appointment_id:
-            description = (
-                f"You are calling patient (phone: {ctx.patient_phone}) "
-                f"to remind them of appointment ID: {ctx.appointment_id}. "
-                "Fetch the appointment details, then generate a warm, brief reminder greeting."
-            )
-            agent = self.reminder_agent
-        elif ctx.direction == "outbound":
-            description = (
-                f"You are calling a patient at {ctx.patient_phone} outbound. "
-                f"Generate a warm opening for {name}, introducing yourself and asking how you can help."
-            )
-            agent = self.greeter
-        else:
-            description = (
-                f"A caller just called {name}. "
-                "Generate a warm, professional inbound greeting and ask how you can help."
-            )
-            agent = self.greeter
+        description = (
+            f"A caller just called {name}. "
+            "Generate a warm, professional inbound greeting and ask how you can help."
+        )
+        agent = self.greeter
 
         greeting_task = Task(
             description=(
