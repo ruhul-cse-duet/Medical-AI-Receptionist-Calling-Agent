@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     OPENAI_TTS_MODEL: str = "gpt-4o-mini-tts"
     OPENAI_TTS_VOICE: str = "shimmer"  # alloy, echo, fable, onyx, nova, shimmer, etc.
 
+    # ── OpenAI Realtime API ───────────────────────────────────────────────────
+    # Set USE_REALTIME_API=true to bypass STT+TTS+LLM and use the single
+    # gpt-4o-realtime-preview WebSocket for ultra-low-latency voice calls.
+    USE_REALTIME_API: bool = False
+    OPENAI_REALTIME_MODEL: str = "gpt-4o-realtime-preview-2025-06-03"
+    # Voice for Realtime TTS: alloy | ash | ballad | coral | echo | sage | shimmer | verse
+    OPENAI_REALTIME_VOICE: str = "shimmer"
+
     # ── LM Studio (local) — OpenAI-compatible API ─────────────────────────────
     # LM Studio → Server tab → start → default port 1234
     LMSTUDIO_BASE_URL: str = "http://localhost:1234/v1"

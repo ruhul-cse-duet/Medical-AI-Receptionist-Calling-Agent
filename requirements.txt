@@ -26,7 +26,11 @@ openai
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 pytz>=2024.2
-websockets>=13.1
 python-dotenv>=1.0.1
 ffmpeg>=1.2.0
 pydub
+
+# ── OpenAI Realtime API bridge ────────────────────────────────────────────────
+# websockets is used by RealtimeBridge to connect to wss://api.openai.com/v1/realtime
+# openai SDK (already above) provides AsyncOpenAI for classic STT/TTS paths
+websockets>=13.1

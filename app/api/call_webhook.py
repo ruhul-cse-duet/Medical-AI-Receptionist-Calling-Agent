@@ -19,7 +19,7 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timezone  # noqa: F401 — timezone used in realtime block
 
 from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
@@ -325,11 +325,69 @@ async def audio_stream(websocket: WebSocket, call_id: str):
     """
     Twilio Media Streams WebSocket.
 
-    Audio pipeline:
-      Twilio micro-law audio -> STT -> CrewAI -> TTS -> Twilio
+    Audio pipeline (classic):
+      Twilio mu-law audio -> STT -> CrewAI -> TTS -> Twilio
+
+    Audio pipeline (Realtime, when USE_REALTIME_API=true):
+      Twilio mu-law audio <-> OpenAI gpt-4o-realtime-preview (single WS, zero conversion)
     """
     await websocket.accept()
-    logger.info("WS opened | call_id=%s | provider=%s", call_id, settings.LLM_PROVIDER)
+    logger.info(
+        "WS opened | call_id=%s | realtime=%s | provider=%s",
+        call_id, settings.USE_REALTIME_API, settings.LLM_PROVIDER,
+    )
+
+    # ── OpenAI Realtime API fast path ─────────────────────────────────────────
+    if settings.USE_REALTIME_API:
+        call_doc = await calls_col().find_one({"id": call_id}, sort=[("created_at", -1)])
+        patient_phone = call_doc["patient_phone"] if call_doc else "unknown"
+        direction     = call_doc.get("direction", "inbound") if call_doc else "inbound"
+        appt_id       = call_doc.get("appointment_id")       if call_doc else None
+
+        from app.services.tenant_service import get_tenant_for_call
+        tenant = await get_tenant_for_call(call_id) if call_doc else None
+
+        # Re-use or create a lightweight CallContext for transcript / booking state
+        existing = get_session(call_id)
+        if existing:
+            ctx = existing.ctx
+            ctx.call_ended = False
+        else:
+            ctx = CallContext(
+                call_id=call_id,
+                patient_phone=patient_phone,
+                direction=direction,
+                is_reminder_call=False,
+                appointment_id=appt_id,
+                started_at=utcnow(),
+                tenant=tenant,
+            )
+            create_session(ctx)
+
+        from app.services.realtime_service import RealtimeBridge
+        bridge = RealtimeBridge(call_id=call_id, ctx=ctx, tenant=tenant)
+        try:
+            await bridge.run(websocket)
+        except Exception as rt_exc:
+            logger.error("Realtime bridge failed | call=%s | %s", call_id, rt_exc, exc_info=True)
+        finally:
+            if ctx.appointment_booked:
+                await calls_col().update_one(
+                    {"id": call_id},
+                    {"$set": {
+                        "appointment_booked":  True,
+                        "appointment_id":      ctx.booked_appointment_id,
+                        "transcript":          ctx.full_transcript,
+                    }},
+                )
+            destroy_session(call_id)
+            logger.info(
+                "Realtime WS closed | call=%s | duration=%.1fs",
+                call_id, (datetime.now(timezone.utc) - ctx.started_at).total_seconds()
+                         if ctx.started_at else 0,
+            )
+        return   # ← do NOT fall through to the classic pipeline below
+    # ─────────────────────────────────────────────────────────────────────────
 
     stt = STTService()
     tts = TTSService()
@@ -529,6 +587,13 @@ async def audio_stream(websocket: WebSocket, call_id: str):
             except json.JSONDecodeError as json_exc:
                 logger.warning("Invalid JSON from WebSocket call=%s: %s", call_id, json_exc)
                 continue
+            except RuntimeError as recv_exc:
+                # Raised when process_loop closes the WS (normal goodbye path)
+                if "not connected" in str(recv_exc).lower():
+                    logger.info("WS closed normally after goodbye | call=%s", call_id)
+                else:
+                    logger.error("WS receive error call=%s: %s", call_id, recv_exc, exc_info=True)
+                break
             except Exception as recv_exc:
                 logger.error("Error receiving WebSocket data call=%s: %s", call_id, recv_exc, exc_info=True)
                 break
