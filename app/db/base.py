@@ -47,5 +47,9 @@ def appointments_col():
     return get_db()["appointments"]
 
 
+def doctors_col():
+    return get_db()["doctors"]
+
+
 def calls_col():
     return get_db()["calls"]

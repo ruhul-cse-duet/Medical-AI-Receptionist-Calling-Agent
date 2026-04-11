@@ -16,6 +16,7 @@ from app.api.appointments import router as appointments_router
 from app.api.call_webhook import router as webhook_router
 from app.api.tts import router as tts_router
 from app.api.tenants import router as tenants_router
+from app.api.doctors import router as doctors_router
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(webhook_router,      prefix=prefix)
     app.include_router(tts_router,          prefix=prefix)
     app.include_router(tenants_router,      prefix=prefix)
+    app.include_router(doctors_router,      prefix=prefix)
 
     return app
 

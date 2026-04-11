@@ -59,12 +59,12 @@ Set at least:
 
 ## Run
 ```powershell
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
 ```
 
 Health/docs:
-- `http://localhost:8000/health`
-- `http://localhost:8000/docs`
+- `http://localhost:8003/health`
+- `http://localhost:8003/docs`
 
 ## Docker Compose (Inbound Stack)
 ```bash
@@ -127,7 +127,7 @@ TTS:
 
 ## Quick Test
 1. Start the API.
-2. Expose it publicly (for example: `ngrok http 8000`).
+2. Expose it publicly (for example: `ngrok http 8003`).
 3. Set `TWILIO_WEBHOOK_BASE_URL` to your public URL.
 4. Configure Twilio voice webhook as above.
 5. Call your Twilio number from your phone.

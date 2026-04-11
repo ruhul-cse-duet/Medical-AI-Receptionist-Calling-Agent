@@ -109,12 +109,39 @@ def _run_tool(name: str, args: Dict) -> str:
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
+def _fetch_doctors_for_prompt(tenant: Optional[Any]) -> str:
+    """Build a compact doctor list string to embed in the system prompt."""
+    try:
+        from app.agents.tools import _get_doctors_sync
+        from app.services.tenant_service import set_current_tenant
+        if tenant:
+            set_current_tenant(tenant)
+        doctors = _get_doctors_sync()
+        if not doctors:
+            return ""
+        lines = []
+        for d in doctors:
+            name = d.get("name", "")
+            spec = d.get("specialty", "")
+            avail = d.get("available_days") or d.get("available_time") or ""
+            fee   = d.get("consultation_fee") or ""
+            line  = f"  - {name} ({spec})"
+            if avail:
+                line += f", available {avail}"
+            if fee:
+                line += f", fee {fee}"
+            lines.append(line)
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _system_prompt(ctx: Any, tenant: Optional[Any]) -> str:
     if tenant and hasattr(tenant, "name"):
-        clinic   = getattr(tenant, "name",           settings.CLINIC_NAME)
-        hours    = getattr(tenant, "business_hours", None) or settings.CLINIC_HOURS
-        address  = getattr(tenant, "address",        None) or settings.CLINIC_ADDRESS
-        phone    = getattr(tenant, "phone",          None) or settings.CLINIC_PHONE
+        clinic   = getattr(tenant, "name",              settings.CLINIC_NAME)
+        hours    = getattr(tenant, "business_hours",    None) or settings.CLINIC_HOURS
+        address  = getattr(tenant, "address",           None) or settings.CLINIC_ADDRESS
+        phone    = getattr(tenant, "phone",             None) or settings.CLINIC_PHONE
         rec_name = getattr(tenant, "receptionist_name", None) or "Lisa"
     else:
         clinic   = settings.CLINIC_NAME
@@ -123,31 +150,38 @@ def _system_prompt(ctx: Any, tenant: Optional[Any]) -> str:
         phone    = settings.CLINIC_PHONE
         rec_name = "Lisa"
 
+    doctor_list = _fetch_doctors_for_prompt(tenant)
+    doctor_section = (
+        f"\nCLINIC DOCTORS:\n{doctor_list}\n"
+        if doctor_list else ""
+    )
+
     return f"""\
-You are {rec_name}, a receptionist at {clinic}. You are on a live phone call right now.
+You are {rec_name}, a professional medical receptionist at {clinic}. You are on a live phone call.
 
-Clinic: {clinic}
-Hours: {hours}
-Address: {address}
-Phone: {phone}
-Caller: {ctx.patient_phone}
+CLINIC INFORMATION:
+  Name    : {clinic}
+  Phone   : {phone}
+  Address : {address}
+  Hours   : {hours}
+  Caller  : {ctx.patient_phone}
+{doctor_section}
+RULES:
+1. You are a real human. Never admit to being an AI or automated system.
+2. Speak in short, warm, natural sentences — 1 to 2 sentences per turn.
+3. Never use bullet points, lists, or markdown in your spoken replies.
+4. Sound like the best receptionist at a busy, professional clinic.
+5. Do NOT repeat the same greeting or filler phrase twice.
 
-RULES — read carefully:
-1. You are a real human being. Never say you are an AI, bot, or automated system.
-2. Speak ONLY in English. Short natural sentences, like a real phone call.
-3. Answer whatever the caller asks — directly and naturally. Do not be scripted.
-4. Keep responses to 1-2 sentences. Only go longer if truly necessary.
-5. Never use bullet points, lists, or markdown in your spoken response.
-6. Sound warm, calm, and confident — like the best receptionist at a busy clinic.
+APPOINTMENT BOOKING — collect one at a time, naturally:
+  full name → preferred doctor or specialty → reason for visit
+  → preferred date and time → confirm phone (you have {ctx.patient_phone})
+Summarise once: "To confirm: [name], [doctor], [reason], [date/time] — shall I book that?"
+Call book_appointment ONLY after the patient says YES.
+After booking, read back the Appointment ID clearly.
 
-APPOINTMENTS — collect naturally through conversation:
-  • Full name  • Preferred doctor or specialty  • Reason for visit
-  • Preferred date and time  • Phone number (you already have {ctx.patient_phone})
-Confirm everything once, then call book_appointment.
-After booking, tell the patient their appointment ID.
-
-NEVER say "How may I assist you today?" more than once.
-NEVER sound like an IVR or phone menu."""
+Use check_available_doctors when the patient asks about doctors or specialties.
+Use get_appointment_details to look up existing appointments."""
 
 
 # ── Call context ──────────────────────────────────────────────────────────────
@@ -235,7 +269,7 @@ class MedicalReceptionistCrew:
                 messages    = messages,
                 tools       = _TOOLS,
                 tool_choice = "auto",
-                temperature = 0.7,
+                temperature = 0.6,
                 max_tokens  = 160,
             )
             msg = resp.choices[0].message
@@ -272,7 +306,7 @@ class MedicalReceptionistCrew:
                 resp2 = self._client.chat.completions.create(
                     model       = settings.OPENAI_MODEL,
                     messages    = working,
-                    temperature = 0.7,
+                    temperature = 0.6,
                     max_tokens  = 160,
                 )
                 # Persist tool interaction into conversation history

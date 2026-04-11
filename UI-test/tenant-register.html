@@ -1,431 +1,573 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Doctor AI Assistant Setup</title>
+  <title>Medical AI Receptionist — Setup</title>
   <style>
     :root {
-      --bg: #f5f3ef;
+      --bg: #f0f4f8;
       --card: #ffffff;
-      --ink: #1b1b1b;
-      --muted: #5a5a5a;
+      --ink: #1a1a2e;
+      --muted: #6b7280;
       --accent: #0f7a6b;
-      --accent-2: #f1a15a;
-      --error: #b00020;
-      --ring: rgba(15, 122, 107, 0.25);
+      --accent-dark: #0a5c50;
+      --accent2: #3b82f6;
+      --danger: #dc2626;
+      --success-bg: #f0fdf4;
+      --success-border: #86efac;
+      --error-bg: #fef2f2;
+      --error-border: #fca5a5;
+      --ring: rgba(15,122,107,0.2);
+      --radius: 14px;
     }
-
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0;
-      font-family: "Georgia", "Times New Roman", serif;
-      background: radial-gradient(1200px 800px at 10% -10%, #f7e9d8 0%, transparent 55%),
-                  radial-gradient(1000px 700px at 120% 10%, #e8f2ee 0%, transparent 45%),
-                  var(--bg);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
       color: var(--ink);
       min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+    .page { max-width: 960px; margin: 0 auto; }
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .header .badge {
+      display: inline-block;
+      background: rgba(15,122,107,0.1);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+    }
+    .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+    .header p  { color: var(--muted); font-size: 15px; }
+    /* ── Tabs ── */
+    .tabs {
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 32px 16px;
+      gap: 4px;
+      background: #e5e7eb;
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 24px;
     }
-
-    .page {
-      width: min(1020px, 100%);
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 24px;
+    .tab-btn {
+      flex: 1;
+      padding: 10px 0;
+      border: none;
+      border-radius: 9px;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all .2s;
     }
-
-    @media (max-width: 860px) {
-      .page {
-        grid-template-columns: 1fr;
-      }
+    .tab-btn.active {
+      background: var(--card);
+      color: var(--accent);
+      box-shadow: 0 1px 6px rgba(0,0,0,.08);
     }
-
+    /* ── Card / Form ── */
     .card {
       background: var(--card);
-      border-radius: 18px;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
-      padding: 28px;
+      border-radius: var(--radius);
+      box-shadow: 0 4px 24px rgba(0,0,0,.07);
+      padding: 28px 32px;
     }
-
-    .hero {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 18px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid rgba(15,122,107,.1);
     }
-
-    .badge {
+    .form-grid { display: grid; gap: 16px; }
+    .row-2 { grid-template-columns: 1fr 1fr; }
+    .row-3 { grid-template-columns: 1fr 1fr 1fr; }
+    @media(max-width:640px) {
+      .row-2, .row-3 { grid-template-columns: 1fr; }
+    }
+    .field { display: grid; gap: 6px; }
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 11px 13px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--ink);
+      transition: border-color .18s, box-shadow .18s;
+      background: #fafafa;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--ring);
+      background: #fff;
+    }
+    textarea { min-height: 76px; resize: vertical; }
+    input[readonly] { background: #f3f4f6; color: var(--muted); }
+    /* ── Buttons ── */
+    .btn {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      font-size: 12px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .hero h1 {
-      margin: 0;
-      font-size: clamp(28px, 3vw, 36px);
-      line-height: 1.2;
-    }
-
-    .hero p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 16px;
-      line-height: 1.5;
-    }
-
-    form {
-      display: grid;
-      gap: 16px;
-    }
-
-    .field {
-      display: grid;
-      gap: 8px;
-    }
-
-    label {
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-    }
-
-    input, textarea, select {
-      width: 100%;
-      padding: 12px 14px;
-      border-radius: 12px;
-      border: 1px solid #dedede;
-      font-size: 15px;
-      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    input:focus, textarea:focus, select:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 4px var(--ring);
-    }
-
-    textarea {
-      min-height: 100px;
-      resize: vertical;
-    }
-
-    .row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    @media (max-width: 560px) {
-      .row {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    button {
-      padding: 12px 18px;
-      border-radius: 999px;
+      padding: 12px 24px;
       border: none;
-      background: var(--accent);
-      color: white;
+      border-radius: 999px;
       font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      transition: transform .18s, box-shadow .18s;
     }
-
-    button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 8px 18px rgba(15, 122, 107, 0.25);
-    }
-
-    button:disabled {
-      opacity: 0.7;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
-
-    .status {
-      border-radius: 12px;
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(15,122,107,.3); }
+    .btn-secondary { background: var(--accent2); color: #fff; }
+    .btn-secondary:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(59,130,246,.3); }
+    .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; box-shadow: none; }
+    /* ── Status box ── */
+    .status-box {
+      margin-top: 16px;
       padding: 14px;
-      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
-      font-size: 14px;
-      background: #f6f6f6;
-      color: var(--muted);
+      border-radius: 10px;
+      font-size: 13px;
       white-space: pre-wrap;
-      word-break: break-word;
-      min-height: 56px;
-    }
-
-    .status.success {
-      border: 1px solid rgba(15, 122, 107, 0.35);
-      background: #f1fbf8;
-      color: #0b5a50;
-    }
-
-    .status.error {
-      border: 1px solid rgba(176, 0, 32, 0.35);
-      background: #fff4f6;
-      color: var(--error);
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: #fff8f0;
-      border-radius: 999px;
-      color: #7a4b1d;
-      font-size: 13px;
-      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
-    }
-
-    .hint {
-      font-size: 13px;
+      word-break: break-all;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
       color: var(--muted);
-      font-family: "Segoe UI", "Helvetica", "Arial", sans-serif;
+      min-height: 48px;
+    }
+    .status-box.success { background: var(--success-bg); border-color: var(--success-border); color: #166534; }
+    .status-box.error   { background: var(--error-bg);   border-color: var(--error-border);   color: var(--danger); }
+    /* ── Doctor list ── */
+    .doctor-list { margin-top: 20px; display: grid; gap: 10px; }
+    .doctor-card {
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1.5px solid #e5e7eb;
+      background: #fafafa;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .doctor-card .d-name { font-weight: 600; font-size: 14px; }
+    .doctor-card .d-spec { font-size: 13px; color: var(--muted); }
+    .doctor-card .d-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: rgba(15,122,107,.1);
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .divider { border: none; border-top: 1.5px solid #e5e7eb; margin: 20px 0; }
+    .tenant-id-display {
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+      color: #166534;
+      margin-bottom: 16px;
+      display: none;
     }
   </style>
 </head>
 <body>
-  <main class="page">
-    <section class="card hero">
-      <div class="badge">
-        <span>Doctor AI Assistant</span>
-        <span>&bull;</span>
-        <span>Clinic Onboarding</span>
-      </div>
-      <h1>Register a doctor and activate the AI assistant.</h1>
-      <p>
-        Submit doctor and clinic details below. We will POST to
-        <strong>/v1/tenants/register</strong> and store the tenant in MongoDB.
-        On success, the <strong>tenant_id</strong> and details will appear here.
-      </p>
-      <div class="pill">After success, call the tenant Twilio number to hear the AI answer as the doctor.</div>
-      <div class="hint">Daily capacity is fixed to 20 patients.</div>
-    </section>
+<div class="page">
+  <!-- Header -->
+  <div class="header">
+    <div class="badge">🏥 Medical AI Receptionist</div>
+    <h1>Clinic & Doctor Setup</h1>
+    <p>Register your clinic, add doctors, then call via Twilio to speak with the AI receptionist.</p>
+  </div>
 
-    <section class="card">
-      <form id="tenantForm">
-        <div class="field">
-          <label for="clinic_name">Clinic Name</label>
-          <input id="clinic_name" name="clinic_name" type="text" placeholder="Atlas Care Clinic" required>
-        </div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('clinic')">1 · Register Clinic</button>
+    <button class="tab-btn" onclick="switchTab('doctor')">2 · Add Doctors</button>
+    <button class="tab-btn" onclick="switchTab('test')">3 · Test Call</button>
+  </div>
 
-        <div class="row">
+
+  <!-- ── TAB 1: Clinic Registration ── -->
+  <div id="tab-clinic" class="tab-panel active">
+    <div class="card">
+      <div class="section-title">Clinic Information</div>
+      <div class="form-grid">
+        <div class="form-grid row-2">
           <div class="field">
-            <label for="company_type">Company Type</label>
-            <select id="company_type" name="company_type">
-              <option value="personal_doctor">Personal Doctor</option>
+            <label>Clinic / Hospital Name *</label>
+            <input id="c_name" type="text" placeholder="HealthCare Medical Center" required>
+          </div>
+          <div class="field">
+            <label>Company Type</label>
+            <select id="c_type">
               <option value="medical_diagnostic">Medical Diagnostic</option>
+              <option value="hospital_clinic">Hospital / Clinic</option>
+              <option value="personal_doctor">Personal Doctor</option>
               <option value="dental_clinic">Dental Clinic</option>
-              <option value="spa_wellness">Spa Wellness</option>
-              <option value="hotel">Hotel</option>
+              <option value="spa_wellness">Spa / Wellness</option>
               <option value="other">Other</option>
             </select>
           </div>
+        </div>
+        <div class="form-grid row-2">
           <div class="field">
-            <label for="receptionist_name">Receptionist Name</label>
-            <input id="receptionist_name" name="receptionist_name" type="text" placeholder="Ayesha">
+            <label>Clinic Phone (E.164) *</label>
+            <input id="c_phone" type="tel" placeholder="+8801XXXXXXXXX">
+          </div>
+          <div class="field">
+            <label>Twilio Number (E.164)</label>
+            <input id="c_twilio" type="tel" placeholder="+1XXXXXXXXXX">
+            <div class="hint">Callers dial this number — AI picks up.</div>
           </div>
         </div>
-
-        <div class="row">
+        <div class="field">
+          <label>Address</label>
+          <input id="c_address" type="text" placeholder="123 Medical Street, Dhaka">
+        </div>
+        <div class="form-grid row-3">
           <div class="field">
-            <label for="doctor_name">Doctor Name</label>
-            <input id="doctor_name" name="doctor_name" type="text" placeholder="Dr. Samira Rahman" required>
+            <label>Working Days</label>
+            <input id="c_days" type="text" placeholder="Sat–Thu">
           </div>
           <div class="field">
-            <label for="specialty">Specialty</label>
-            <input id="specialty" name="specialty" type="text" placeholder="Cardiology" required>
+            <label>Open Time</label>
+            <input id="c_start" type="time" value="09:00">
+          </div>
+          <div class="field">
+            <label>Close Time</label>
+            <input id="c_end" type="time" value="20:00">
           </div>
         </div>
-
-        <div class="row">
+        <div class="form-grid row-3">
           <div class="field">
-            <label for="phone">Clinic Phone (Required)</label>
-            <input id="phone" name="phone" type="tel" placeholder="+8801XXXXXXXXX" required>
-          </div>
-          <div class="field">
-            <label for="twilio_phone_number">Twilio Phone Number</label>
-            <input id="twilio_phone_number" name="twilio_phone_number" type="tel" placeholder="+1XXXXXXXXXX">
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="field">
-            <label for="contact_name">Contact Name</label>
-            <input id="contact_name" name="contact_name" type="text" placeholder="Clinic Manager">
-          </div>
-          <div class="field">
-            <label for="email">Contact Email</label>
-            <input id="email" name="email" type="email" placeholder="contact@clinic.com">
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="field">
-            <label for="website">Website</label>
-            <input id="website" name="website" type="url" placeholder="https://clinic.com">
-          </div>
-          <div class="field">
-            <label for="timezone">Timezone</label>
-            <select id="timezone" name="timezone">
+            <label>Timezone</label>
+            <select id="c_tz">
               <option value="Asia/Dhaka">Asia/Dhaka</option>
               <option value="America/New_York">America/New_York</option>
               <option value="America/Chicago">America/Chicago</option>
               <option value="America/Los_Angeles">America/Los_Angeles</option>
               <option value="Europe/London">Europe/London</option>
+              <option value="Asia/Kolkata">Asia/Kolkata</option>
             </select>
           </div>
-        </div>
-
-        <div class="row">
           <div class="field">
-            <label for="country">Country (ISO)</label>
-            <input id="country" name="country" type="text" placeholder="BD" value="BD">
+            <label>Country (ISO)</label>
+            <input id="c_country" type="text" placeholder="BD" value="BD" maxlength="2">
           </div>
           <div class="field">
-            <label for="locale">Locale</label>
-            <input id="locale" name="locale" type="text" placeholder="en-US" value="en-US">
+            <label>Receptionist Name</label>
+            <input id="c_recname" type="text" placeholder="Lisa">
           </div>
         </div>
-
-        <div class="row">
+        <hr class="divider">
+        <div class="section-title" style="margin-bottom:10px">Admin Account (Optional)</div>
+        <div class="form-grid row-2">
           <div class="field">
-            <label for="working_days">Working Days</label>
-            <input id="working_days" name="working_days" type="text" placeholder="Sun-Thu">
+            <label>Admin Email</label>
+            <input id="c_email" type="email" placeholder="admin@clinic.com">
           </div>
           <div class="field">
-            <label for="consultation_fee">Consultation Fee</label>
-            <input id="consultation_fee" name="consultation_fee" type="text" placeholder="500 BDT">
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="field">
-            <label for="start_time">Start Time</label>
-            <input id="start_time" name="start_time" type="time" value="09:00">
-          </div>
-          <div class="field">
-            <label for="end_time">End Time</label>
-            <input id="end_time" name="end_time" type="time" value="17:00">
+            <label>Admin Password</label>
+            <input id="c_pass" type="password" placeholder="••••••••">
           </div>
         </div>
+        <button class="btn btn-primary" onclick="registerClinic()">🏥 Register Clinic</button>
+        <div id="clinic-status" class="status-box">Fill in clinic details and click Register.</div>
+      </div>
+    </div>
+  </div>
 
-        <div class="row">
+
+  <!-- ── TAB 2: Doctor Registration ── -->
+  <div id="tab-doctor" class="tab-panel">
+    <div class="card">
+      <div id="tenant-id-display" class="tenant-id-display">
+        ✅ Clinic registered — Tenant ID: <strong id="tid-label"></strong>
+      </div>
+
+      <div class="section-title">Register a Doctor</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Tenant / Clinic ID *</label>
+          <input id="d_tid" type="text" placeholder="Paste tenant_id from Step 1">
+        </div>
+        <div class="form-grid row-2">
           <div class="field">
-            <label for="patient_limit">Patients Per Day</label>
-            <input id="patient_limit" name="patient_limit" type="number" value="20" min="20" max="20" readonly>
+            <label>Doctor Full Name *</label>
+            <input id="d_name" type="text" placeholder="Dr. Sarah Ahmed">
           </div>
           <div class="field">
-            <label for="address">Clinic Address</label>
-            <input id="address" name="address" type="text" placeholder="Street, City, Country">
+            <label>Specialty *</label>
+            <input id="d_spec" type="text" placeholder="Cardiology">
           </div>
         </div>
+        <div class="form-grid row-2">
+          <div class="field">
+            <label>Qualification</label>
+            <input id="d_qual" type="text" placeholder="MBBS, MD">
+          </div>
+          <div class="field">
+            <label>Experience (years)</label>
+            <input id="d_exp" type="number" placeholder="10" min="0">
+          </div>
+        </div>
+        <div class="form-grid row-2">
+          <div class="field">
+            <label>Available Days</label>
+            <input id="d_days" type="text" placeholder="Sun–Thu">
+          </div>
+          <div class="field">
+            <label>Available Time</label>
+            <input id="d_time" type="text" placeholder="9 AM – 5 PM">
+          </div>
+        </div>
+        <div class="form-grid row-2">
+          <div class="field">
+            <label>Consultation Fee</label>
+            <input id="d_fee" type="text" placeholder="500 BDT">
+          </div>
+          <div class="field">
+            <label>Phone (optional)</label>
+            <input id="d_phone" type="tel" placeholder="+8801XXXXXXXXX">
+          </div>
+        </div>
+        <div class="field">
+          <label>Short Bio</label>
+          <textarea id="d_bio" placeholder="10+ years experience in cardiovascular care..."></textarea>
+        </div>
+        <button class="btn btn-secondary" onclick="registerDoctor()">➕ Add Doctor</button>
+        <div id="doctor-status" class="status-box">Fill doctor details and click Add Doctor.</div>
+      </div>
 
-        <button id="submitBtn" type="submit">Register Doctor Assistant</button>
-        <div id="status" class="status">Waiting for submission.</div>
-      </form>
-    </section>
-  </main>
+      <hr class="divider">
+      <div class="section-title">Registered Doctors</div>
+      <div class="form-grid row-2" style="margin-bottom:12px">
+        <div class="field">
+          <label>Tenant ID to load doctors</label>
+          <input id="d_load_tid" type="text" placeholder="Paste tenant_id">
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button class="btn btn-primary" style="padding:11px 18px;font-size:13px" onclick="loadDoctors()">🔄 Load Doctors</button>
+        </div>
+      </div>
+      <div id="doctor-list" class="doctor-list"><div style="color:var(--muted);font-size:13px">No doctors loaded yet.</div></div>
+    </div>
+  </div>
 
-  <script>
-    const form = document.getElementById("tenantForm");
-    const statusBox = document.getElementById("status");
-    const submitBtn = document.getElementById("submitBtn");
 
-    const setStatus = (message, type) => {
-      statusBox.textContent = message;
-      statusBox.classList.remove("success", "error");
-      if (type) statusBox.classList.add(type);
+  <!-- ── TAB 3: Test Call ── -->
+  <div id="tab-test" class="tab-panel">
+    <div class="card">
+      <div class="section-title">How to Test the AI Receptionist</div>
+      <div style="line-height:1.8;font-size:14px;color:var(--muted)">
+        <p><strong style="color:var(--ink)">Step 1</strong> — Register your clinic in Tab 1. Copy the <code>tenant_id</code>.</p>
+        <p><strong style="color:var(--ink)">Step 2</strong> — Add doctors in Tab 2 using that tenant_id.</p>
+        <p><strong style="color:var(--ink)">Step 3</strong> — Point your Twilio phone number's <em>Voice webhook</em> to:<br>
+          <code style="background:#f3f4f6;padding:3px 8px;border-radius:6px">https://YOUR_NGROK_URL/v1/webhooks/call/answer?call_id=NEW</code>
+        </p>
+        <p><strong style="color:var(--ink)">Step 4</strong> — Call the Twilio number. The AI receptionist will greet you, tell you about available doctors, and book appointments — all stored in MongoDB.</p>
+        <hr class="divider">
+        <p><strong style="color:var(--ink)">What the AI can do on the call:</strong></p>
+        <ul style="padding-left:20px;margin-top:6px">
+          <li>Greet callers professionally as a named receptionist</li>
+          <li>Tell callers which doctors are available and their specialties</li>
+          <li>Collect patient name, preferred doctor, reason, and date/time</li>
+          <li>Confirm all details before booking</li>
+          <li>Save appointment with patient details + doctor_id to MongoDB</li>
+          <li>Read back the Appointment ID so the patient can reference it</li>
+          <li>Handle inactivity gracefully with a keepalive message</li>
+          <li>Say a warm goodbye when the call ends</li>
+        </ul>
+        <hr class="divider">
+        <div style="font-size:13px">
+          <strong>API Endpoints:</strong><br>
+          <code>POST /v1/tenants/register</code> — Register clinic<br>
+          <code>POST /v1/doctors/register</code> — Add doctor<br>
+          <code>GET  /v1/doctors?tenant_id=...</code> — List doctors<br>
+          <code>GET  /v1/appointments</code> — View all appointments<br>
+          <code>GET  /docs</code> — Swagger UI (dev mode)
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /page -->
+
+
+<script>
+  const API = "http://localhost:8003";
+  let savedTenantId = localStorage.getItem("tenantId") || "";
+
+  // ── Tab switching ───────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll(".tab-btn").forEach((b,i)=>b.classList.toggle("active", ["clinic","doctor","test"][i]===name));
+    document.querySelectorAll(".tab-panel").forEach(p=>p.classList.toggle("active", p.id===`tab-${name}`));
+    if (name==="doctor" && savedTenantId) {
+      document.getElementById("d_tid").value = savedTenantId;
+      document.getElementById("d_load_tid").value = savedTenantId;
+      showTenantBadge(savedTenantId);
+    }
+  }
+
+  function showTenantBadge(tid) {
+    const el = document.getElementById("tenant-id-display");
+    document.getElementById("tid-label").textContent = tid;
+    el.style.display = "block";
+  }
+
+  function setStatus(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = "status-box" + (type ? " "+type : "");
+  }
+
+  // ── CLINIC REGISTRATION ─────────────────────────────────────────────────────
+  async function registerClinic() {
+    const name = document.getElementById("c_name").value.trim();
+    const phone = document.getElementById("c_phone").value.trim();
+    if (!name || !phone) { setStatus("clinic-status","Clinic name and phone are required.","error"); return; }
+
+    const days  = document.getElementById("c_days").value.trim();
+    const start = document.getElementById("c_start").value;
+    const end   = document.getElementById("c_end").value;
+    const hours = [days, start && end ? `${start}–${end}` : ""].filter(Boolean).join(" ");
+
+    const payload = {
+      company_type:       document.getElementById("c_type").value,
+      name,
+      phone,
+      address:            document.getElementById("c_address").value.trim(),
+      business_hours:     hours,
+      country:            (document.getElementById("c_country").value || "BD").trim().toUpperCase(),
+      locale:             "en-US",
+      timezone:           document.getElementById("c_tz").value,
+      twilio_phone_number:document.getElementById("c_twilio").value.trim(),
+      receptionist_name:  document.getElementById("c_recname").value.trim() || "Lisa",
+      admin_email:        document.getElementById("c_email").value.trim() || undefined,
+      admin_password:     document.getElementById("c_pass").value || undefined,
     };
 
-    const API_BASE = "http://localhost:8000";
+    setStatus("clinic-status","Registering clinic...");
+    try {
+      const r = await fetch(`${API}/v1/tenants/register`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)
+      });
+      const data = await r.json().catch(()=>({}));
+      if (!r.ok) { setStatus("clinic-status", data.detail||"Registration failed.", "error"); return; }
+      savedTenantId = data.tenant_id || "";
+      localStorage.setItem("tenantId", savedTenantId);
+      setStatus("clinic-status",
+        `✅ Clinic registered!\nTenant ID: ${savedTenantId}\n\n${JSON.stringify(data,null,2)}`,
+        "success");
+    } catch(e) {
+      setStatus("clinic-status", e.message || "Network error.", "error");
+    }
+  }
+</script>
 
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      submitBtn.disabled = true;
-      setStatus("Submitting doctor assistant data...", null);
+<script>
+  // ── DOCTOR REGISTRATION ─────────────────────────────────────────────────────
+  async function registerDoctor() {
+    const tid  = document.getElementById("d_tid").value.trim();
+    const name = document.getElementById("d_name").value.trim();
+    const spec = document.getElementById("d_spec").value.trim();
+    if (!tid)  { setStatus("doctor-status","Tenant ID is required.","error"); return; }
+    if (!name) { setStatus("doctor-status","Doctor name is required.","error"); return; }
 
-      const workingDays = form.working_days.value.trim();
-      const startTime = form.start_time.value;
-      const endTime = form.end_time.value;
-      const businessHours = `${workingDays} ${startTime}-${endTime}`.trim();
+    const expVal = document.getElementById("d_exp").value;
+    const payload = {
+      tenant_id:        tid,
+      name,
+      specialty:        spec,
+      qualification:    document.getElementById("d_qual").value.trim(),
+      experience_years: expVal ? parseInt(expVal) : undefined,
+      available_days:   document.getElementById("d_days").value.trim(),
+      available_time:   document.getElementById("d_time").value.trim(),
+      consultation_fee: document.getElementById("d_fee").value.trim(),
+      bio:              document.getElementById("d_bio").value.trim(),
+      phone:            document.getElementById("d_phone").value.trim(),
+    };
 
-      const doctorName = form.doctor_name.value.trim();
-      const specialty = form.specialty.value.trim();
-      const staffList = [];
-      if (doctorName || specialty) {
-        staffList.push({
-          name: doctorName,
-          specialty: specialty
-        });
+    setStatus("doctor-status","Registering doctor...");
+    try {
+      const r = await fetch(`${API}/v1/doctors/register`, {
+        method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)
+      });
+      const data = await r.json().catch(()=>({}));
+      if (!r.ok) { setStatus("doctor-status", data.detail||"Doctor registration failed.", "error"); return; }
+      setStatus("doctor-status",
+        `✅ Doctor registered!\nDoctor ID: ${data.doctor_id}\n\n${JSON.stringify(data,null,2)}`,
+        "success");
+      // Clear fields
+      ["d_name","d_spec","d_qual","d_exp","d_days","d_time","d_fee","d_bio","d_phone"]
+        .forEach(id => { document.getElementById(id).value=""; });
+      loadDoctors();
+    } catch(e) {
+      setStatus("doctor-status", e.message||"Network error.", "error");
+    }
+  }
+
+  // ── LOAD DOCTOR LIST ────────────────────────────────────────────────────────
+  async function loadDoctors() {
+    const tid = document.getElementById("d_load_tid").value.trim()
+             || document.getElementById("d_tid").value.trim();
+    if (!tid) { return; }
+    try {
+      const r = await fetch(`${API}/v1/doctors?tenant_id=${encodeURIComponent(tid)}`);
+      const data = await r.json().catch(()=>({}));
+      const list = document.getElementById("doctor-list");
+      const docs = data.doctors || [];
+      if (!docs.length) {
+        list.innerHTML = '<div style="color:var(--muted);font-size:13px">No doctors registered for this clinic yet.</div>';
+        return;
       }
+      list.innerHTML = docs.map(d => `
+        <div class="doctor-card">
+          <div>
+            <div class="d-name">${d.name}</div>
+            <div class="d-spec">${d.specialty || ""}${d.qualification ? " · "+d.qualification : ""}
+              ${d.available_days ? " · "+d.available_days : ""}
+              ${d.consultation_fee ? " · "+d.consultation_fee : ""}
+            </div>
+          </div>
+          <span class="d-badge">ID: ${d.id.slice(0,8)}…</span>
+        </div>`).join("");
+    } catch(e) {
+      document.getElementById("doctor-list").innerHTML = `<div style="color:var(--danger);font-size:13px">${e.message}</div>`;
+    }
+  }
 
-      const payload = {
-        company_type: form.company_type.value,
-        name: form.clinic_name.value.trim(),
-        phone: form.phone.value.trim(),
-        address: form.address.value.trim(),
-        business_hours: businessHours,
-        country: (form.country.value || "BD").trim().toUpperCase(),
-        locale: (form.locale.value || "en-US").trim(),
-        timezone: form.timezone.value,
-        twilio_phone_number: form.twilio_phone_number.value.trim(),
-        receptionist_name: form.receptionist_name.value.trim() || "Lisa",
-        staff_list: staffList,
-        extra_info: {
-          doctor_name: doctorName,
-          specialty: specialty,
-          consultation_fee: form.consultation_fee.value.trim(),
-          patient_limit: Number(form.patient_limit.value || 20),
-          working_days: workingDays,
-          start_time: startTime,
-          end_time: endTime,
-          website: form.website.value.trim(),
-          contact_name: form.contact_name.value.trim(),
-          contact_email: form.email.value.trim()
-        }
-      };
-
-      try {
-        const response = await fetch(`${API_BASE}/v1/tenants/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          const errorMessage = data.detail || data.message || `Request failed (${response.status})`;
-          setStatus(errorMessage, "error");
-          return;
-        }
-
-        const tenantId = data.tenant_id || data.id || "unknown";
-        const pretty = JSON.stringify(data, null, 2);
-        setStatus(`Success. tenant_id: ${tenantId}\n\n${pretty}`, "success");
-      } catch (error) {
-        setStatus(error.message || "Network error.", "error");
-      } finally {
-        submitBtn.disabled = false;
-      }
-    });
-  </script>
+  // Auto-fill tenant id from localStorage on load
+  window.addEventListener("DOMContentLoaded", () => {
+    if (savedTenantId) {
+      document.getElementById("d_tid").value      = savedTenantId;
+      document.getElementById("d_load_tid").value = savedTenantId;
+    }
+  });
+</script>
 </body>
 </html>

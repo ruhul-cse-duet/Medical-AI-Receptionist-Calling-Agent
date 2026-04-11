@@ -1,7 +1,7 @@
 """
 Medical AI Receptionist — MongoDB Models (Pydantic)
-Collections:  tenants | users | patients | appointments | calls
-SaaS: each company (tenant) has its own data; calls/appointments/patients are scoped by tenant_id.
+Collections: tenants | users | doctors | patients | appointments | calls
+SaaS: each company (tenant) has its own data scoped by tenant_id.
 """
 from __future__ import annotations
 from datetime import datetime, timezone
@@ -21,14 +21,13 @@ def utcnow() -> datetime:
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
 class CompanyType(str, Enum):
-    """Business type for tenant; drives agent behavior and templates."""
     MEDICAL_DIAGNOSTIC = "medical_diagnostic"
-    DENTAL_CLINIC = "dental_clinic"
-    PERSONAL_DOCTOR = "personal_doctor"
-    HOSPITAL_CLINIC = "hospital_clinic"
-    HOTEL = "hotel"
-    SPA_WELLNESS = "spa_wellness"
-    OTHER = "other"
+    DENTAL_CLINIC      = "dental_clinic"
+    PERSONAL_DOCTOR    = "personal_doctor"
+    HOSPITAL_CLINIC    = "hospital_clinic"
+    HOTEL              = "hotel"
+    SPA_WELLNESS       = "spa_wellness"
+    OTHER              = "other"
 
 
 class AppointmentStatus(str, Enum):
@@ -52,27 +51,20 @@ class CallStatus(str, Enum):
     NO_ANSWER   = "no_answer"
 
 
-# ── Tenant (Company / Organization) ─────────────────────────────────────────────
+# ── Tenant ────────────────────────────────────────────────────────────────────
 class Tenant(BaseModel):
-    """One company/organization using the AI receptionist (SaaS tenant). International: region/country + timezone."""
     id: str = Field(default_factory=new_id)
     company_type: CompanyType = CompanyType.MEDICAL_DIAGNOSTIC
     name: str
-    phone: str                             # E.164 main line
+    phone: str
     address: str = ""
-    business_hours: str = ""                # e.g. "Sat–Thu 9 AM–8 PM"
-    # Region/country for international SaaS (ISO 3166-1 alpha-2)
+    business_hours: str = ""
     country: str = "BD"
-    # Locale for date/time and language (e.g. en-US, bn-BD, en-GB)
     locale: str = "en-US"
-    # IANA timezone (e.g. Asia/Dhaka, America/New_York, Europe/London)
     timezone: str = "Asia/Dhaka"
-    # Twilio: the number that rings for this tenant (inbound → resolve tenant by this)
     twilio_phone_number: str = ""
-    # Agent behavior
-    agent_backend: str = "crewai"           # crewai | simple
-    receptionist_name: str = "Lisa"         # persona name
-    # Optional: staff/doctors/services (JSON or list); structure depends on company_type
+    agent_backend: str = "crewai"
+    receptionist_name: str = "Lisa"
     staff_list: List[Dict[str, Any]] = Field(default_factory=list)
     extra_info: Dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
@@ -80,9 +72,8 @@ class Tenant(BaseModel):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-# ── User (company admin / dashboard) ───────────────────────────────────────────
+# ── User ──────────────────────────────────────────────────────────────────────
 class User(BaseModel):
-    """User belonging to a tenant (for dashboard login)."""
     id: str = Field(default_factory=new_id)
     tenant_id: str
     email: str
@@ -94,12 +85,32 @@ class User(BaseModel):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+# ── Doctor ────────────────────────────────────────────────────────────────────
+class Doctor(BaseModel):
+    """A doctor/staff member registered under a tenant (clinic)."""
+    id: str = Field(default_factory=new_id)
+    tenant_id: str
+    name: str                              # e.g. "Dr. Sarah Ahmed"
+    specialty: str = ""                    # e.g. "Cardiology"
+    qualification: str = ""               # e.g. "MBBS, MD"
+    experience_years: Optional[int] = None
+    available_days: str = ""              # e.g. "Sun-Thu"
+    available_time: str = ""              # e.g. "9:00 AM - 5:00 PM"
+    consultation_fee: str = ""            # e.g. "500 BDT"
+    bio: str = ""                         # short description
+    phone: str = ""                        # direct line (optional)
+    email: Optional[str] = None
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 # ── Patient ───────────────────────────────────────────────────────────────────
 class Patient(BaseModel):
     id: str = Field(default_factory=new_id)
-    tenant_id: str = ""                     # SaaS: which company this patient belongs to
+    tenant_id: str = ""
     name: str
-    phone: str                             # E.164
+    phone: str
     email: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
@@ -112,18 +123,19 @@ class Patient(BaseModel):
 # ── Appointment ───────────────────────────────────────────────────────────────
 class Appointment(BaseModel):
     id: str = Field(default_factory=new_id)
-    tenant_id: str = ""                     # SaaS: which company
+    tenant_id: str = ""
     patient_id: str
     patient_name: str
     patient_phone: str
+    doctor_id: Optional[str] = None        # references Doctor.id
     doctor_name: str
-    treatment_title: str                   # e.g. "General Checkup", "Cardiology Consult"
-    scheduled_at: datetime                 # appointment date & time (UTC)
+    treatment_title: str
+    scheduled_at: datetime
     status: AppointmentStatus = AppointmentStatus.SCHEDULED
     notes: Optional[str] = None
     reminder_sent: bool = False
     reminder_sent_at: Optional[datetime] = None
-    call_id: Optional[str] = None          # call that booked this appointment
+    call_id: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
@@ -131,7 +143,7 @@ class Appointment(BaseModel):
 # ── Call ──────────────────────────────────────────────────────────────────────
 class Call(BaseModel):
     id: str = Field(default_factory=new_id)
-    tenant_id: str = ""                     # SaaS: which company this call belongs to
+    tenant_id: str = ""
     patient_id: Optional[str] = None
     patient_phone: str
     direction: CallDirection
@@ -146,3 +158,4 @@ class Call(BaseModel):
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
